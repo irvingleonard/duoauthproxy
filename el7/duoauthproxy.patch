@@ -1,0 +1,82 @@
+diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py
+--- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-07-22 12:29:10.000000000 -0400
++++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-07-27 13:55:17.000000000 -0400
+@@ -191,7 +191,7 @@
+     else:
+         # This local file is <AUTHPROXY_INSTALL_DIR>/usr/local/lib/python2.7/site-packages/duoauthproxy/lib/util.py.
+         # Find <AUTHPROXY_INSTALL_DIR>.
+-        _home_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), *['..'] * 7))
++        _home_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), *['..'] * 5))
+ 
+ 
+ # do this when the module loads, i.e. before anybody calls chdir()
+diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code
+--- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-07-22 12:29:10.000000000 -0400
++++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-07-27 13:32:38.000000000 -0400
+@@ -8,10 +8,7 @@
+ from duoauthproxy.lib import const, util
+ from duoauthproxy.lib.secret_storage import store_secret, get_storage_filename
+ 
+-# --- install script will customize this ---
+-USER_DEFAULT = None
+-# ------------------------------------------
+-
++USER_DEFAULT = 'root'
+ 
+ def set_linux_permissions():
+     import pwd
+diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl
+--- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl	2020-07-22 12:29:10.000000000 -0400
++++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl	2020-07-27 13:11:52.000000000 -0400
+@@ -26,10 +26,7 @@
+ ERROR_ARGS = 2
+ ERROR_UNIMPLEMENTED = 3
+ 
+-# --- install script will customize this ---
+-USER_DEFAULT = None
+-# ------------------------------------------
+-
++USER_DEFAULT = 'root'
+ 
+ class AuthproxyController(object):
+     def __init__(self, python_root=None, duo_root=None, user=None):
+@@ -40,7 +37,7 @@
+             python_root = os.path.abspath(root_relative)
+ 
+         if duo_root is None:
+-            root_relative = os.path.join(os.path.dirname(script_abspath), *['..'] * 3)
++            root_relative = os.path.join(os.path.dirname(script_abspath), '..')
+             duo_root = os.path.abspath(root_relative)
+ 
+         self.python_root = python_root
+diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap
+--- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-07-22 12:29:10.000000000 -0400
++++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-07-27 13:35:32.000000000 -0400
+@@ -1,8 +1,6 @@
+ from duoauthproxy import proxy
+ 
+-# --- install script will customize this ---
+-USER_DEFAULT = None
+-GROUP_DEFAULT = None
+-# ------------------------------------------
++USER_DEFAULT = 'root'
++GROUP_DEFAULT = 'root'
+ 
+ application = proxy.create_application(twistd_user=USER_DEFAULT, log_group=GROUP_DEFAULT)
+diff -u -r  source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py
+--- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py	2020-07-22 12:29:10.000000000 -0400
++++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py	2020-07-27 14:32:01.000000000 -0400
+@@ -129,11 +129,12 @@
+         ],
+         scripts=['scripts/authproxy',
+                  'scripts/authproxyctl',
+-                 'scripts/install',
+                  'scripts/authproxy_connectivity_tool',
++                 'scripts/authproxy_passwd',
+                  'scripts/authproxy_primary_only',
+                  'scripts/authproxy_support',
+                  'scripts/authproxy_update_sso_enrollment_code',
++                 'scripts/duoauthproxy.tap',
+                  ],
+         **metadata
+     )

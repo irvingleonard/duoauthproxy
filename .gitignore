@@ -1,0 +1,7 @@
+# macOS
+.DS_Store
+
+# Releases
+releases/
+rpmbuild/
+rpmvenv/
