@@ -330,12 +330,7 @@ class StandardDUOProxy:
 		
 		environment = None
 		
-		if module == 'duoauthproxy':
-			patch_file = THIS_FILE.parent / 'duoauthproxy.patch'
-			LOGGER.debug('Patching the duoauthproxy module using %s', patch_file)
-			patch_ = patch.fromfile(str(patch_file))
-			patch_.apply(strip = 2, root = self.source_path)
-		elif module == 'setuptools':
+		if module == 'setuptools':
 			LOGGER.debug('Boostraping setuptools in %s', self.pkg_list[module])
 			venv_result = subprocess.run([self.venv_python, 'bootstrap.py'], cwd = self.pkg_list[module], capture_output = not self.show_output, check = True)
 		elif (module == 'cryptography') and self.openssl_dist:
@@ -434,6 +429,11 @@ class StandardDUOProxy:
 			setattr(self, key, value)
 		
 		source_path = childs[0]
+		
+		patch_file = THIS_FILE.parent / 'duoauthproxy.patch'
+		LOGGER.debug('Patching the duoauthproxy module using %s', patch_file)
+		patch_ = patch.fromfile(str(patch_file))
+		patch_.apply(strip = 1, root = source_path)
 		
 		return source_path
 	

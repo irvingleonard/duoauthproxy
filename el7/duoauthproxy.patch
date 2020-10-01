@@ -1,21 +1,21 @@
-diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py
---- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-07-22 12:29:10.000000000 -0400
-+++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-07-27 13:55:17.000000000 -0400
-@@ -191,7 +191,7 @@
-     else:
+diff -u -r source/pkgs/duoauthproxy/duoauthproxy/lib/util.py patched/pkgs/duoauthproxy/duoauthproxy/lib/util.py
+--- source/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-08-14 17:12:21.000000000 -0400
++++ patched/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-08-19 10:15:08.000000000 -0400
+@@ -195,7 +195,7 @@
          # This local file is <AUTHPROXY_INSTALL_DIR>/usr/local/lib/python2.7/site-packages/duoauthproxy/lib/util.py.
          # Find <AUTHPROXY_INSTALL_DIR>.
--        _home_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), *['..'] * 7))
-+        _home_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), *['..'] * 5))
+         _home_dir = os.path.abspath(
+-            os.path.join(os.path.dirname(__file__), *[".."] * 7)
++            os.path.join(os.path.dirname(__file__), *[".."] * 5)
+         )
  
  
- # do this when the module loads, i.e. before anybody calls chdir()
-diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code
---- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-07-22 12:29:10.000000000 -0400
-+++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-07-27 13:32:38.000000000 -0400
-@@ -8,10 +8,7 @@
- from duoauthproxy.lib import const, util
- from duoauthproxy.lib.secret_storage import store_secret, get_storage_filename
+diff -u -r source/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code patched/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code
+--- source/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-08-14 17:12:22.000000000 -0400
++++ patched/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-08-19 10:16:23.000000000 -0400
+@@ -10,10 +10,7 @@
+ from duoauthproxy.lib import const, log, util
+ from duoauthproxy.lib.secret_storage import get_storage_filename, store_secret
  
 -# --- install script will customize this ---
 -USER_DEFAULT = None
@@ -25,33 +25,32 @@ diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authp
  
  def set_linux_permissions():
      import pwd
-diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl
---- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl	2020-07-22 12:29:10.000000000 -0400
-+++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/authproxyctl	2020-07-27 13:11:52.000000000 -0400
-@@ -26,10 +26,7 @@
- ERROR_ARGS = 2
- ERROR_UNIMPLEMENTED = 3
+diff -u -r source/pkgs/duoauthproxy/scripts/authproxyctl patched/pkgs/duoauthproxy/scripts/authproxyctl
+--- source/pkgs/duoauthproxy/scripts/authproxyctl	2020-08-14 17:12:22.000000000 -0400
++++ patched/pkgs/duoauthproxy/scripts/authproxyctl	2020-08-19 10:20:41.000000000 -0400
+@@ -85,9 +85,7 @@
  
--# --- install script will customize this ---
--USER_DEFAULT = None
--# ------------------------------------------
--
-+USER_DEFAULT = 'root'
+ class LinuxAuthproxyController(AuthproxyController):
  
- class AuthproxyController(object):
-     def __init__(self, python_root=None, duo_root=None, user=None):
-@@ -40,7 +37,7 @@
+-    # --- install script will customize this ---
+-    USER_DEFAULT = None
+-    # ------------------------------------------
++    USER_DEFAULT = 'root'
+ 
+     # linux standard status codes for 'status' initscript command
+     STATUS_RUNNING = 0
+@@ -103,7 +101,7 @@
              python_root = os.path.abspath(root_relative)
  
          if duo_root is None:
--            root_relative = os.path.join(os.path.dirname(script_abspath), *['..'] * 3)
-+            root_relative = os.path.join(os.path.dirname(script_abspath), '..')
+-            root_relative = os.path.join(os.path.dirname(script_abspath), *[".."] * 3)
++            root_relative = os.path.join(os.path.dirname(script_abspath), "..")
              duo_root = os.path.abspath(root_relative)
  
-         self.python_root = python_root
-diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap
---- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-07-22 12:29:10.000000000 -0400
-+++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-07-27 13:35:32.000000000 -0400
+         super(LinuxAuthproxyController, self).__init__(duo_root)
+diff -u -r source/pkgs/duoauthproxy/scripts/duoauthproxy.tap patched/pkgs/duoauthproxy/scripts/duoauthproxy.tap
+--- source/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-08-14 17:12:22.000000000 -0400
++++ patched/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-08-19 10:21:24.000000000 -0400
 @@ -1,8 +1,6 @@
  from duoauthproxy import proxy
  
@@ -63,20 +62,44 @@ diff -u -r source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/scripts/duoau
 +GROUP_DEFAULT = 'root'
  
  application = proxy.create_application(twistd_user=USER_DEFAULT, log_group=GROUP_DEFAULT)
-diff -u -r  source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py
---- source/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py	2020-07-22 12:29:10.000000000 -0400
-+++ patched/duoauthproxy-4.0.2-5b2d5d6-src/pkgs/duoauthproxy/setup.py	2020-07-27 14:32:01.000000000 -0400
-@@ -129,11 +129,12 @@
+diff -u -r source/pkgs/duoauthproxy/setup.py patched/pkgs/duoauthproxy/setup.py
+--- source/pkgs/duoauthproxy/setup.py	2020-08-14 17:12:22.000000000 -0400
++++ patched/pkgs/duoauthproxy/setup.py	2020-08-19 10:22:13.000000000 -0400
+@@ -152,11 +152,11 @@
+         scripts=[
+             "scripts/authproxy",
+             "scripts/authproxyctl",
+-            "scripts/install",
+             "scripts/authproxy_connectivity_tool",
+             "scripts/authproxy_primary_only",
+             "scripts/authproxy_support",
+             "scripts/authproxy_update_sso_enrollment_code",
++            'scripts/duoauthproxy.tap',
          ],
-         scripts=['scripts/authproxy',
-                  'scripts/authproxyctl',
--                 'scripts/install',
-                  'scripts/authproxy_connectivity_tool',
-+                 'scripts/authproxy_passwd',
-                  'scripts/authproxy_primary_only',
-                  'scripts/authproxy_support',
-                  'scripts/authproxy_update_sso_enrollment_code',
-+                 'scripts/duoauthproxy.tap',
-                  ],
-         **metadata
+         **common_metadata
      )
+diff -u -r source/pkgs/pyrad-2.2/pyrad/packet.py patched/pkgs/pyrad-2.2/pyrad/packet.py
+--- source/pkgs/pyrad-2.2/pyrad/packet.py	2020-08-14 17:12:20.000000000 -0400
++++ patched/pkgs/pyrad-2.2/pyrad/packet.py	2020-08-19 10:24:51.000000000 -0400
+@@ -632,9 +632,9 @@
+         if self.authenticator is None:
+             # self.authenticator = self.CreateAuthenticator()
+             self.authenticator = 16 * six.b('\x00')
+-
+-        salt = struct.pack('!H', random_generator.randrange(0, 65535))
+-        salt = chr(ord(salt[0]) | 1 << 7)+salt[1]
++        
++        salt = struct.pack('!H', 32768 + random_generator.randrange(0, 32767) )
++        salt = chr(salt[0]) + chr(salt[1])
+ 
+         length = struct.pack("B", len(value))
+         buf = length + value
+@@ -643,7 +643,7 @@
+ 
+         result = six.b(salt)
+ 
+-        last = self.authenticator + salt
++        last = self.authenticator + six.b(salt)
+         while buf:
+             hash = md5_constructor(self.secret + last).digest()
+             if six.PY3:
