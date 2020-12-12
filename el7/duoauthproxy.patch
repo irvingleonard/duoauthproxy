@@ -1,6 +1,6 @@
 diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/duoauthproxy/lib/util.py patched/pkgs/duoauthproxy/duoauthproxy/lib/util.py
---- upstream/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-09-25 13:15:34.000000000 -0400
-+++ patched/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-10-01 10:54:57.000000000 -0400
+--- upstream/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-11-19 19:18:28.000000000 -0500
++++ patched/pkgs/duoauthproxy/duoauthproxy/lib/util.py	2020-12-11 21:10:36.000000000 -0500
 @@ -195,7 +195,7 @@
          # This local file is <AUTHPROXY_INSTALL_DIR>/usr/local/lib/python2.7/site-packages/duoauthproxy/lib/util.py.
          # Find <AUTHPROXY_INSTALL_DIR>.
@@ -11,23 +11,24 @@ diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/duoauthproxy/lib/util.py patc
  
  
 diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code patched/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code
---- upstream/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-09-25 13:15:35.000000000 -0400
-+++ patched/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-10-01 10:57:06.000000000 -0400
-@@ -10,9 +10,7 @@
+--- upstream/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-11-19 19:18:28.000000000 -0500
++++ patched/pkgs/duoauthproxy/scripts/authproxy_update_sso_enrollment_code	2020-12-11 21:12:55.000000000 -0500
+@@ -10,10 +10,7 @@
  from duoauthproxy.lib import const, log, util
  from duoauthproxy.lib.secret_storage import get_storage_filename, store_secret
  
 -# --- install script will customize this ---
 -USER_DEFAULT = None
 -# ------------------------------------------
+-
 +USER_DEFAULT = 'root'
  
- 
  def set_linux_permissions():
+     import pwd
 diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/scripts/authproxyctl patched/pkgs/duoauthproxy/scripts/authproxyctl
---- upstream/pkgs/duoauthproxy/scripts/authproxyctl	2020-09-25 13:15:35.000000000 -0400
-+++ patched/pkgs/duoauthproxy/scripts/authproxyctl	2020-10-01 10:59:51.000000000 -0400
-@@ -85,9 +85,7 @@
+--- upstream/pkgs/duoauthproxy/scripts/authproxyctl	2020-11-19 19:18:28.000000000 -0500
++++ patched/pkgs/duoauthproxy/scripts/authproxyctl	2020-12-11 21:13:57.000000000 -0500
+@@ -89,9 +89,7 @@
  
  class LinuxAuthproxyController(AuthproxyController):
  
@@ -38,7 +39,7 @@ diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/scripts/authproxyctl patched/
  
      # linux standard status codes for 'status' initscript command
      STATUS_RUNNING = 0
-@@ -103,7 +101,7 @@
+@@ -107,7 +105,7 @@
              python_root = os.path.abspath(root_relative)
  
          if duo_root is None:
@@ -48,8 +49,8 @@ diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/scripts/authproxyctl patched/
  
          super(LinuxAuthproxyController, self).__init__(duo_root)
 diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/scripts/duoauthproxy.tap patched/pkgs/duoauthproxy/scripts/duoauthproxy.tap
---- upstream/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-09-25 13:15:35.000000000 -0400
-+++ patched/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-10-01 11:01:28.000000000 -0400
+--- upstream/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-11-19 19:18:28.000000000 -0500
++++ patched/pkgs/duoauthproxy/scripts/duoauthproxy.tap	2020-12-11 21:14:23.000000000 -0500
 @@ -1,8 +1,6 @@
  from duoauthproxy import proxy
  
@@ -62,9 +63,9 @@ diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/scripts/duoauthproxy.tap patc
  
  application = proxy.create_application(twistd_user=USER_DEFAULT, log_group=GROUP_DEFAULT)
 diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/setup.py patched/pkgs/duoauthproxy/setup.py
---- upstream/pkgs/duoauthproxy/setup.py	2020-09-25 13:15:35.000000000 -0400
-+++ patched/pkgs/duoauthproxy/setup.py	2020-10-01 11:02:59.000000000 -0400
-@@ -152,11 +152,11 @@
+--- upstream/pkgs/duoauthproxy/setup.py	2020-11-19 19:18:28.000000000 -0500
++++ patched/pkgs/duoauthproxy/setup.py	2020-12-11 21:15:20.000000000 -0500
+@@ -153,11 +153,11 @@
          scripts=[
              "scripts/authproxy",
              "scripts/authproxyctl",
@@ -73,7 +74,7 @@ diff -u -r -x .DS_Store upstream/pkgs/duoauthproxy/setup.py patched/pkgs/duoauth
              "scripts/authproxy_primary_only",
              "scripts/authproxy_support",
              "scripts/authproxy_update_sso_enrollment_code",
-+            'scripts/duoauthproxy.tap',
++            "scripts/duoauthproxy.tap",
          ],
          **common_metadata
      )
