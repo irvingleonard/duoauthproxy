@@ -81,6 +81,7 @@ RPMVENV_TEMPLATE = {
 		'group': 'root'
 	},
     'python_venv': {
+    	'cmd': 'virtualenv --pip 20.2.4',
     	'flags': [],
     	'pip_flags': '--no-index',
         'python': sys.executable,
