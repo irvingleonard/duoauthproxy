@@ -431,9 +431,12 @@ class StandardDUOProxy:
 		source_path = childs[0]
 		
 		patch_file = THIS_FILE.parent / 'duoauthproxy.patch'
-		LOGGER.debug('Patching the duoauthproxy module using %s', patch_file)
-		patch_ = patch.fromfile(str(patch_file))
-		patch_.apply(strip = 1, root = source_path)
+		if patch_file.exists():
+			LOGGER.info('Patching source using %s', patch_file)
+			patch_ = patch.fromfile(str(patch_file))
+			patch_.apply(strip = 1, root = source_path)
+		else:
+			LOGGER.info('Doing vanilla build because patch file is not present: %s', patch_file)
 		
 		return source_path
 	
