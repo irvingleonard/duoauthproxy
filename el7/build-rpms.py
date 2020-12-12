@@ -24,7 +24,7 @@ import urllib.parse
 __version__ = '0.2.0'
 
 BASE_DIRECTORY = 'rpmvenv'
-BASE_VENV_PACKAGES = ('wheel', 'patch', 'packaging')
+BASE_VENV_PACKAGES = ('wheel', 'patch')
 DEFAULT_DIRECTORIES = {
 	'build'		: 'build',
 	'source'	: 'source',

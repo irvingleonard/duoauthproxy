@@ -1,15 +1,13 @@
-# sitelib for noarch packages, sitearch for others (remove the unneeded one)
-%{!?python_sitelib: %global python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
 %{!?python_sitearch: %global python_sitearch %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(1))")}
 %define debug_package %{nil}
 %global __os_install_post %(echo '%{__os_install_post}' | sed -e 's!/usr/lib[^[:space:]]*/brp-python-bytecompile[[:space:]].*$!!g')
-%define _duo_version 5.0.2
-%define _duo_source_commit 2ec09da
+%define _duo_version 5.1.1
+%define _duo_source_commit 7484191
 %define _duo_source_directory duoauthproxy-%{_duo_version}-%{_duo_source_commit}-src
 
 Name:           python38-altinstall-duoauthproxy
 Version:        3.8.4
-Release:        3%{?dist}
+Release:        5%{?dist}
 Summary:        Interpreter of the Python programming language
 
 License:        Python
@@ -77,6 +75,10 @@ rm %{buildroot}/usr/local/share/man/man1/python3.1
 %doc /usr/local/share/man/man1/python3.8.1.gz
 
 %changelog
+* Mon Dec 7 2020 Irving Leonard <mm-irvingleonard@github.com> 5.1.1-1
+- Upgraded to duoauthproxy 5.1.1
+* Tue Nov 10 2020 Irving Leonard <mm-irvingleonard@github.com> 5.1.0-1
+- Upgraded to duoauthproxy 5.1.0
 * Wed Sep 30 2020 Irving Leonard <mm-irvingleonard@github.com> 5.0.2-1
 - Upgraded to duoauthproxy 5.0.2
 * Wed Aug 19 2020 Irving Leonard <mm-irvingleonard@github.com> 5.0.0-2
