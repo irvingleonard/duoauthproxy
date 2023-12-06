@@ -23,6 +23,19 @@ PACKAGE_NAME_MAP = {
 	'setuptools_scm'	: 'setuptools-scm',
 }
 
+def build_wheel(source_dir = '.', venv = './venv'):
+	'''Build a wheel
+	Get a wheel from the source tree of a module.
+	'''
+	
+	source_dir = pathlib.Path(source_dir)
+	if not isinstance(venv, VirtualEnvironmentManager):
+		venv = VirtualEnvironmentManager(path = venv)
+	venv.install('wheel')
+	
+	result = venv('setup.py', 'bdist_wheel')
+	return result
+
 def download_tarball(version_tag, destination = './', download_path_template = 'https://dl.duosecurity.com/duoauthproxy-{version_tag}-src.tgz', stream_chunk_size = 1048576):
 	'''Download tarball
 	Downloads the installation tarball for the specified version
@@ -64,16 +77,13 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 	for tarball_member in tarball_members:
 		if third_party_dir in tarball_member.parents:
 			module_name = tarball_member.relative_to(third_party_dir).parts[0]
-			packages.add(module_name)
+			for ignoring_package in ignore_packages:
+				if module_name[:len(ignoring_package)].lower() == ignoring_package.lower():
+					module_name = None
+					break
+			if module_name is not None:
+				packages.add(module_name)
 	
-	remove_packages = []
-	for ignoring_package in ignore_packages:
-		for package in packages:
-			if package[:len(ignoring_package)].lower() == ignoring_package.lower():
-				remove_packages.append(package)
-				break
-	
-	packages = [package for package in packages if package not in remove_packages]
 	source_packages, wheels_present = {}, {}
 	for package in packages:
 		if package[-4:] == '.whl':
@@ -90,7 +100,7 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 			if skip_existing_wheels and (output_dir / wheel.name).exists():
 				continue
 			wheel = wheel.rename(output_dir / wheel.name)
-			LOGGER.debug('Finished placing wheel: %s', wheel)
+			LOGGER.info('Finished placing wheel: %s', wheel)
 		
 		with tempfile.TemporaryDirectory() as work_area:
 			work_area = pathlib.Path(work_area)
@@ -102,23 +112,32 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 				(workdir / third_party_dir / source_package).rename(work_area / source_package)
 			
 			work_venv = VirtualEnvironmentManager(path = work_area / 'venv', overwrite = True)
-			wheels = [str(entry) for entry in output_dir.iterdir()]
-			for i in range(len(wheels)):
-				for wheel in tuple(wheels):
-					try:
-						work_venv.install(wheel)
-					except Exception:
-						pass
-					else:
-						wheels.remove(wheel)
-				if not wheels:
-					break
+			work_venv.install('build', no_index = False)
+			if os.name == 'nt':
+				work_venv.install('py2exe', no_index = False)
+			wheels, pypi_wheels = [], []
+			for entry in output_dir.iterdir():
+				if VirtualEnvironmentManager.compatible_wheel(entry.name):
+					wheels.append(str(entry))
+				else:
+					details = VirtualEnvironmentManager.parse_wheel_name(entry.name)
+					pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
+					if pypi_wheel not in pypi_wheels:
+						pypi_wheels.append(pypi_wheel)
 			
-			unwheeled = []
-			for i in range(len(source_packages)):
-				pass
+			work_venv.install(*wheels, no_deps = True)
+			work_venv.install(*pypi_wheels, no_index = False, no_deps = True)
 			
-			return list(work_area.iterdir())
+			for source_package in source_packages:
+				setup_py = work_area / source_package / 'setup.py'
+				if not setup_py.exists():
+					LOGGER.warning('Missing setup.py in package: {}'.format(source_package))
+					raise Exception()
+				work_venv(setup_py, 'bdist_wheel', cwd = work_area / source_package)
+				for wheel in (work_area / source_package / 'dist').iterdir():
+					wheel.rename(output_dir / wheel.name)
+			
+			return subprocess.run((str(work_venv.python),) + ('-m', 'pip', 'check'), capture_output = False, check = False, text = True).stderr
 			
 	
 	return source_packages
@@ -156,7 +175,7 @@ class VirtualEnvironmentManager:
 	
 	WHEEL_NAMING_CONVENTION = '(?P<distribution>.+)-(?P<version>[^-]+)(?:-(?P<build_tag>[^-]+))?-(?P<python_tag>[^-]+)-(?P<abi_tag>[^-]+)-(?P<platform_tag>[^-]+)\.whl'
 	
-	def __call__(self, *arguments, capture_output = None):
+	def __call__(self, *arguments, capture_output = None, cwd = None):
 		'''Run something
 		Run the virtual environment's python with the provided arguments
 		'''
@@ -164,7 +183,14 @@ class VirtualEnvironmentManager:
 		if capture_output is None:
 			capture_output = self._show_output
 		
-		return subprocess.run((str(self.python),) + tuple(arguments), capture_output = capture_output, check = True, text = True).stdout
+		result = subprocess.run((str(self.python),) + tuple(arguments), capture_output = capture_output, cwd = cwd, check = False, text = True)
+		if self._show_output:
+			if result.stderr:
+				print(result.stderr)
+			if result.stdout:
+				print(result.stdout)
+		result.check_returncode()
+		return result
 	
 	def __getattr__(self, name):
 		'''Magic attribute resolution
@@ -193,8 +219,28 @@ class VirtualEnvironmentManager:
 		if not self.path.exists():
 			subprocess.run((sys.executable, '-m', 'venv', str(self.path)), capture_output = not self._show_output, check = True)
 			self('-m', 'pip', 'install', '--upgrade', 'pip')
-
-	def install(self, *packages, upgrade = False):
+	
+	@classmethod
+	def compatible_wheel(cls, wheel):
+		'''Check wheel compatibility
+		Uses the platform tag from the wheel name to check if it's compatible with the current platform.
+		
+		Using the list from https://stackoverflow.com/questions/446209/possible-values-from-sys-platform
+		'''
+	
+		details = cls.parse_wheel_name(wheel)
+		platform_tags = {tag.lower() for tag in details['platform_tag']}
+		
+		if 'any' in platform_tags:
+			return True
+			
+		if os.name == 'nt':
+			if {'win32', 'cygwin', 'msys'} & platform_tags:
+				return True
+		
+		return False
+	
+	def install(self, *packages, upgrade = False, no_index = True, no_deps = False):
 		'''Install a package
 		The package can be whatever "pip install" expects.
 		'''
@@ -202,6 +248,10 @@ class VirtualEnvironmentManager:
 		command = ['-m', 'pip', 'install']
 		if upgrade:
 			command.append('--upgrade')
+		if no_index:
+			command.append('--no-index')
+		if no_deps:
+			command.append('--no-deps')
 		command += list(packages)
 		
 		return self(*command)
