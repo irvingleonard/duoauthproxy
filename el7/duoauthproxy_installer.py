@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import pathlib
+import platform
 import re
 import shutil
 import subprocess
@@ -12,6 +13,7 @@ import tarfile
 import tempfile
 import urllib.parse
 
+import pip._vendor.packaging.tags
 import requests
 import simplifiedapp
 
@@ -99,7 +101,7 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 		for wheel in (workdir / third_party_dir).iterdir(): 
 			if skip_existing_wheels and (output_dir / wheel.name).exists():
 				continue
-			wheel = wheel.rename(output_dir / wheel.name)
+			wheel = shutil.move(wheel, output_dir / wheel.name)
 			LOGGER.info('Finished placing wheel: %s', wheel)
 		
 		with tempfile.TemporaryDirectory() as work_area:
@@ -109,15 +111,15 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 				LOGGER.debug('Extracting source tree from tarfile: %s', source_package)
 				for source_package_file in source_package_content:
 					tarball_obj.extract(source_package_file, path = workdir)
-				(workdir / third_party_dir / source_package).rename(work_area / source_package)
+				shutil.move(workdir / third_party_dir / source_package, work_area / source_package)
 			
 			work_venv = VirtualEnvironmentManager(path = work_area / 'venv', overwrite = True)
-			work_venv.install('build', no_index = False)
+			work_venv.install('build', no_index = False, no_deps = False)
 			if os.name == 'nt':
-				work_venv.install('py2exe', no_index = False)
+				work_venv.install('py2exe', no_index = False, no_deps = False)
 			wheels, pypi_wheels = [], []
 			for entry in output_dir.iterdir():
-				if VirtualEnvironmentManager.compatible_wheel(entry.name):
+				if work_venv.compatible_wheel(entry.name):
 					wheels.append(str(entry))
 				else:
 					details = VirtualEnvironmentManager.parse_wheel_name(entry.name)
@@ -125,54 +127,59 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 					if pypi_wheel not in pypi_wheels:
 						pypi_wheels.append(pypi_wheel)
 			
-			work_venv.install(*wheels, no_deps = True)
-			work_venv.install(*pypi_wheels, no_index = False, no_deps = True)
+			if wheels:
+				work_venv.install(*wheels)
+			if pypi_wheels:
+				work_venv.install(*pypi_wheels, no_index = False)
 			
+			weird_structures = []
 			for source_package in source_packages:
 				setup_py = work_area / source_package / 'setup.py'
 				if not setup_py.exists():
-					LOGGER.warning('Missing setup.py in package: {}'.format(source_package))
-					raise Exception()
+					weird_structures.append(source_package)
+					continue
 				work_venv(setup_py, 'bdist_wheel', cwd = work_area / source_package)
 				for wheel in (work_area / source_package / 'dist').iterdir():
-					wheel.rename(output_dir / wheel.name)
+					wheel = shutil.move(wheel, output_dir / wheel.name)
+					LOGGER.info('Finished placing wheel: %s', wheel)
 			
-			return subprocess.run((str(work_venv.python),) + ('-m', 'pip', 'check'), capture_output = False, check = False, text = True).stderr
-			
-	
-	return source_packages
-	
-	
-	
-	
-	result = {}
-	with tempfile.TemporaryDirectory() as workdir:
-		workdir = pathlib.Path(workdir)
-		tarball_obj.extractall(workdir)
-		pkgs_dir = workdir / pathlib.Path(tarball).stem / 'pkgs'
-	
-		for child in pkgs_dir.iterdir():
-			if child.is_dir():
-				name, ignore_this, version = child.name.rpartition('-')
-				if child.name.lower() == 'duoauthproxy':
-					name = 'duoauthproxy'
-					version = tarball.name.split('-', maxsplit = 2)[1]
-				elif resolve_upstream_names and (name in PACKAGE_NAME_MAP):
-					name = PACKAGE_NAME_MAP[name]
-				result[name] = version
-			elif child.is_file():
-				result[child.name] = None
-			else:
-				raise RuntimeError("Don't know what the included package is: {}".format(child.name))
-	
-	return result
+			hidden_wheels = {}
+			for structure in weird_structures:
+				for the_dir, child_dirs, child_files in os.walk((work_area / structure)):
+					for child in child_files:
+						# LOGGER.warning('Looking for .whl extension: %s (%s)', child, child[-4:])
+						if child[-4:] == '.whl':
+							wheel = pathlib.Path(the_dir) / child
+							details = work_venv.parse_wheel_name(wheel.name)
+							pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
+							if pypi_wheel not in hidden_wheels:
+								hidden_wheels[pypi_wheel] = None
+							if work_venv.compatible_wheel(wheel.name):
+								hidden_wheels[pypi_wheel] = wheel
+
+			more_pypi_wheels = []
+			LOGGER.warning('Processing hidden wheels: %s', hidden_wheels)
+			for pypi_entry, wheel in hidden_wheels.items():
+				if wheel is None:
+					more_pypi_wheels.append(pypi_entry)
+				else:
+					wheel = shutil.move(wheel, output_dir / wheel.name)
+					LOGGER.info('Finished placing wheel: %s', wheel)
+					work_venv.install(wheel)
+
+			if more_pypi_wheels:
+				LOGGER.warning('Installing incompatible hidden wheels from pypi: %s', more_pypi_wheels)
+				work_venv.install(*more_pypi_wheels, no_index = False)
+
+			work_venv('-m', 'pip', 'check')
+			return work_venv.modules
 
 
 class VirtualEnvironmentManager:
 	'''Manage a virtual environment
 	A hopefully useful class to manage your local python virtual environment using subprocess.
 	'''
-	
+
 	WHEEL_NAMING_CONVENTION = '(?P<distribution>.+)-(?P<version>[^-]+)(?:-(?P<build_tag>[^-]+))?-(?P<python_tag>[^-]+)-(?P<abi_tag>[^-]+)-(?P<platform_tag>[^-]+)\.whl'
 	
 	def __call__(self, *arguments, capture_output = None, cwd = None):
@@ -197,7 +204,9 @@ class VirtualEnvironmentManager:
 		Lazy calculation of certain attributes
 		'''
 		
-		if name == 'python':
+		if name == 'compatible_tags':
+			value = {'py3-none-any', 'py38-none-any'} | {str(tag) for tag in pip._vendor.packaging.tags.cpython_tags()}
+		elif name == 'python':
 			value = self.path / ('Scripts' if os.name == 'nt' else 'bin') / 'python'
 		else:
 			raise AttributeError(name)
@@ -220,27 +229,23 @@ class VirtualEnvironmentManager:
 			subprocess.run((sys.executable, '-m', 'venv', str(self.path)), capture_output = not self._show_output, check = True)
 			self('-m', 'pip', 'install', '--upgrade', 'pip')
 	
-	@classmethod
-	def compatible_wheel(cls, wheel):
+	def compatible_wheel(self, wheel):
 		'''Check wheel compatibility
 		Uses the platform tag from the wheel name to check if it's compatible with the current platform.
 		
 		Using the list from https://stackoverflow.com/questions/446209/possible-values-from-sys-platform
 		'''
-	
-		details = cls.parse_wheel_name(wheel)
-		platform_tags = {tag.lower() for tag in details['platform_tag']}
+
+		details = self.parse_wheel_name(wheel)
+		possible_tags = set()
+		for python_tag in details['python_tag']:
+			for abi_tag in details['abi_tag']:
+				for platform_tag in details['platform_tag']:
+					possible_tags.add('-'.join((python_tag, abi_tag, platform_tag)))
 		
-		if 'any' in platform_tags:
-			return True
-			
-		if os.name == 'nt':
-			if {'win32', 'cygwin', 'msys'} & platform_tags:
-				return True
-		
-		return False
+		return bool(possible_tags & self.compatible_tags)
 	
-	def install(self, *packages, upgrade = False, no_index = True, no_deps = False):
+	def install(self, *packages, upgrade = False, no_index = True, no_deps = True):
 		'''Install a package
 		The package can be whatever "pip install" expects.
 		'''
@@ -263,7 +268,7 @@ class VirtualEnvironmentManager:
 		'''
 		
 		result = self('-m', 'pip', 'list', '--format', 'json', capture_output = True)
-		return {module['name'] : module['version'] for module in json.loads(result)}
+		return {module['name'] : module['version'] for module in json.loads(result.stdout)}
 	
 	@classmethod
 	def parse_wheel_name(cls, wheel_name):
