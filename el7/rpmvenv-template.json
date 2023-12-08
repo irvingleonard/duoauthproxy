@@ -1,0 +1,31 @@
+{
+"extensions": {"enabled": ["blocks", "file_extras", "file_permissions", "python_venv"]},
+"core": {
+	"summary": "On-premises service that receives authentication requests from your local devices and applications via RADIUS or LDAP",
+	"group": "Application/System",
+	"license": "Other",
+	"url": "https://duo.com/docs/authproxy-reference",
+	"requires": [
+		"duoauthproxy-python"
+	]
+},
+"blocks": {
+	"desc": [
+		"The Duo Authentication Proxy is an on-premises software service that receives authentication requests from your local devices and applications via RADIUS or LDAP, optionally performs primary authentication against your existing LDAP directory or RADIUS authentication server, and then contacts Duo to perform secondary authentication. Once the user approves the two-factor request (received as a push notification from Duo Mobile, or as a phone call, etc.), the Duo proxy returns access approval to the requesting device or application.",
+		"\n",
+		"This package includes a virtual environment created out of the modules included in the upstream tarball and packaged using rpmvenv (https://github.com/kevinconway/rpmvenv)."
+	]
+},
+"file_extras": {"files": []},
+"file_permissions": {
+	"user": "root",
+	"group": "root"
+},
+"python_venv": {
+	"cmd": "virtualenv --pip 20.2.4",
+	"flags": [],
+	"pip_flags": "--no-index",
+	"python": sys.executable,
+	"require_setup_py": false
+}
+}
