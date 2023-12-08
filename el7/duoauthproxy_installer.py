@@ -19,6 +19,8 @@ import simplifiedapp
 
 LOGGER = logging.getLogger(__name__)
 
+NON_PYTHON_MODULES = ['python-']
+
 def build_wheel(source_dir = '.', venv = './venv'):
 	'''Build a wheel
 	Get a wheel from the source tree of a module.
@@ -61,7 +63,7 @@ def download_tarball(version_tag, destination = './', download_path_template = '
 				
 	return str(local_file)
 
-def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], include_random_packages = ['twisted-iocpsupport']):
+def get_wheels(tarball, output_dir = './wheels', include_simple_wheels = False, include_random_packages = ['twisted-iocpsupport']):
 	'''Get wheels
 	Given a tarball, detect all the packages in wheels present and build the ones that live as source trees. Extract/put all wheels in the "output_dir" 
 	'''
@@ -93,15 +95,8 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 		
 		simple_wheels = {}
 		for entry in (tarball_root / 'pkgs').iterdir():
-			
-			ignore_entry = False
-			for ignoring_package in ignore_packages:
-				if entry.name[:len(ignoring_package)].lower() == ignoring_package.lower():
-					ignore_entry = True
-					break
-			if ignore_entry:
+			if not is_python_module(entry.name):
 				continue
-			
 			if entry.suffix == '.whl':
 				details = work_venv.parse_wheel_name(entry.name)
 				pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
@@ -116,25 +111,22 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 			if wheel is None:
 				simple_pypi_wheels.append(pypi_entry)
 			else:
-				wheel = shutil.move(wheel, output_dir / wheel.name)
-				LOGGER.info('Finished placing wheel: %s', wheel)
-				work_venv.install(wheel)
+				if include_simple_wheels:
+					wheel = shutil.move(wheel, output_dir / wheel.name)
+					LOGGER.info('Finished placing wheel: %s', wheel)
+					work_venv.install(wheel)
+				else:
+					simple_pypi_wheels.append(pypi_entry)
 		
 		if simple_pypi_wheels:
+			work_venv.download(*simple_pypi_wheels, dest = str(output_dir))
 			LOGGER.warning('Installing incompatible simple wheels from pypi: %s', simple_pypi_wheels)
 			work_venv.install(*simple_pypi_wheels, no_index = False)
 		
 		source_wheels, weird_structures = {}, []
 		for entry in (tarball_root / 'pkgs').iterdir():
-			
-			ignore_entry = False
-			for ignoring_package in ignore_packages:
-				if entry.name[:len(ignoring_package)].lower() == ignoring_package.lower():
-					ignore_entry = True
-					break
-			if ignore_entry:
+			if not is_python_module(entry.name):
 				continue
-			
 			if entry.is_dir():
 				if not (entry / 'setup.py').is_file():
 					weird_structures.append(entry)
@@ -156,14 +148,8 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 			for the_dir, child_dirs, child_files in os.walk(structure):
 				for child in child_files:
 					if child[-4:] == '.whl':
-						ignore_entry = False
-						for ignoring_package in ignore_packages:
-							if entry.name[:len(ignoring_package)].lower() == ignoring_package.lower():
-								ignore_entry = True
-								break
-						if ignore_entry:
+						if not is_python_module(entry.name):
 							continue
-							
 						wheel = pathlib.Path(the_dir) / child
 						details = work_venv.parse_wheel_name(wheel.name)
 						pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
@@ -180,15 +166,32 @@ def get_wheels(tarball, output_dir = './wheels', ignore_packages = ['python-'], 
 							
 		hidden_pypi_wheels = [pypi_wheel for pypi_wheel, wheel in hidden_wheels.items() if wheel is None]
 		if hidden_pypi_wheels:
+			work_venv.download(*hidden_pypi_wheels, dest = str(output_dir))
 			LOGGER.warning('Installing incompatible hidden wheels from pypi: %s', hidden_pypi_wheels)
 			work_venv.install(*hidden_pypi_wheels, no_index = False)
 		
 		if include_random_packages:
+			work_venv.download(*include_random_packages, dest = str(output_dir))
+			LOGGER.warning('Installing requested random wheels from pypi: %s', include_random_packages)
 			work_venv.install(*include_random_packages, no_index = False)
 		
-		work_venv('-m', 'pip', 'check')
+		LOGGER.info('Checking integrity of the env after all wheels got installed')
+		work_venv('check', program = 'pip')
 		
 		return set(simple_wheels.keys()) | set(source_wheels.keys()) | set(hidden_wheels.keys()) | set(include_random_packages)
+
+def is_python_module(package_name):
+	'''Is it a python module?
+	Checks if the provided package is not a python module based on the hardcoded NON_PYTHON_MODULES list.
+	'''
+
+	for ignoring_package in NON_PYTHON_MODULES:
+		if package_name[:len(ignoring_package)].lower() == ignoring_package.lower():
+			return False
+	return True
+
+def rpmvenv_json(pip_version, venv = './venv'):
+	pass
 
 
 class VirtualEnvironmentManager:
@@ -198,12 +201,14 @@ class VirtualEnvironmentManager:
 
 	WHEEL_NAMING_CONVENTION = '(?P<distribution>.+)-(?P<version>[^-]+)(?:-(?P<build_tag>[^-]+))?-(?P<python_tag>[^-]+)-(?P<abi_tag>[^-]+)-(?P<platform_tag>[^-]+)\.whl'
 	
-	def __call__(self, *arguments, cwd = None):
+	def __call__(self, *arguments, cwd = None, program = 'python'):
 		'''Run something
 		Run the virtual environment's python with the provided arguments
 		'''
 		
-		result = subprocess.run((str(self.python),) + tuple(arguments), capture_output = True, cwd = cwd, check = False, text = True)
+		if not hasattr(self, program):
+			raise ValueError('Unsupported program: {}'.format(program))
+		result = subprocess.run((str(getattr(self, program)),) + tuple(arguments), capture_output = True, cwd = cwd, check = False, text = True)
 		if self._show_output:
 			if result.stderr:
 				print(result.stderr)
@@ -217,10 +222,14 @@ class VirtualEnvironmentManager:
 		Lazy calculation of certain attributes
 		'''
 		
-		if name == 'compatible_tags':
+		if name == 'bin_scripts':
+			value = self.path / ('Scripts' if os.name == 'nt' else 'bin')
+		elif name == 'compatible_tags':
 			value = {'py3-none-any', 'py38-none-any'} | {str(tag) for tag in pip._vendor.packaging.tags.cpython_tags()}
+		elif name == 'pip':
+			value = self.bin_scripts / 'pip'
 		elif name == 'python':
-			value = self.path / ('Scripts' if os.name == 'nt' else 'bin') / 'python'
+			value = self.bin_scripts / 'python'
 		else:
 			raise AttributeError(name)
 		
@@ -258,12 +267,24 @@ class VirtualEnvironmentManager:
 		
 		return bool(possible_tags & self.compatible_tags)
 	
+	def download(self, *packages, dest = '.', no_deps = True):
+		'''Install a package
+		The package can be whatever "pip install" expects.
+		'''
+
+		command = ['download', '--dest', dest]
+		if no_deps:
+			command.append('--no-deps')
+		command += list(packages)
+
+		return self(*command, program = 'pip')
+
 	def install(self, *packages, upgrade = False, no_index = True, no_deps = True):
 		'''Install a package
 		The package can be whatever "pip install" expects.
 		'''
 		
-		command = ['-m', 'pip', 'install']
+		command = ['install']
 		if upgrade:
 			command.append('--upgrade')
 		if no_index:
@@ -272,7 +293,7 @@ class VirtualEnvironmentManager:
 			command.append('--no-deps')
 		command += list(packages)
 		
-		return self(*command)
+		return self(*command, program = 'pip')
 		
 	@property
 	def modules(self):
@@ -280,7 +301,7 @@ class VirtualEnvironmentManager:
 		Simple "pip list" as a python dictionary (name : version)
 		'''
 		
-		result = self('-m', 'pip', 'list', '--format', 'json')
+		result = self('list', '--format', 'json', program = 'pip')
 		return {module['name'] : module['version'] for module in json.loads(result.stdout)}
 	
 	@classmethod
