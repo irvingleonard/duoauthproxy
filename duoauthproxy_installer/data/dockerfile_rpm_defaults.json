@@ -1,0 +1,10 @@
+{
+  "centos-stream9": {
+    "from_image": "quay.io/centos/centos:stream9",
+    "image_preparation": [
+      "dnf clean all",
+      "dnf --assumeyes upgrade",
+      "dnf --assumeyes install rpmdevtools dnf-utils epel-release"
+    ]
+  }
+}

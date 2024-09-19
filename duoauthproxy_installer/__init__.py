@@ -1,6 +1,6 @@
 #!python
-"""
-
+"""Duo Authentication Proxy Installers
+Create installers for duoauthproxy distributions.
 """
 
 from json import dumps as json_dumps, loads as json_loads
@@ -16,155 +16,21 @@ from urllib.parse import urlparse
 from devautotools import VirtualEnvironmentManager
 from requests import get as requests_get
 
+try:
+	from jinja2 import Environment as Jinja2Environment
+except ImportError:
+	Jinja2Environment = None
+try:
+	from docker import from_env as docker_from_env
+except ImportError:
+	docker_from_env = None
+
+__version__ = '0.1.0.dev0'
+
 LOGGER = getLogger(__name__)
-
 NON_PYTHON_MODULES = ['python-']
+		
 
-
-class RPMVenvTemplate(dict):
-	"""
-	
-	"""
-	
-	VALID_BLOCKS = ('blocks', 'core', 'extensions', 'python_venv')
-	
-	def __init__(self, base_dir=None, *, load_defaults=True):
-		"""
-		
-		"""
-		
-		super().__init__()
-		self._base_dir = Path.cwd() if base_dir is None else Path(base_dir)
-		if load_defaults:
-			self.load_defaults()
-	
-	def __missing__(self, key):
-		"""
-		
-		"""
-		
-		if key not in self.VALID_BLOCKS:
-			raise KeyError('"{}" is not a valid rpmvenv extension'.format(key))
-		
-		value = {}
-		self.__setitem__(key, value)
-		return value
-	
-	def __str__(self):
-		"""
-		
-		"""
-		
-		return json_dumps(self, default=str, indent=4)
-	
-	@property
-	def name(self):
-		"""
-		
-		"""
-		
-		return self['core']['name']
-	
-	@property
-	def version(self):
-		"""
-
-		"""
-		
-		return self['core']['version']
-	
-	@version.setter
-	def version(self, new_version):
-		"""
-
-		"""
-		
-		self['core']['version'] = new_version
-	
-	@version.deleter
-	def version(self):
-		"""
-
-		"""
-		
-		del self['core']['version']
-		if not self['core']:
-			del self['core']
-	
-	@property
-	def release(self):
-		"""
-
-		"""
-		
-		return self['core']['release']
-	
-	@release.setter
-	def release(self, new_release):
-		"""
-
-		"""
-		
-		self['core']['release'] = new_release
-	
-	@release.deleter
-	def release(self):
-		"""
-
-		"""
-		
-		del self['core']['release']
-		if not self['core']:
-			del self['core']
-	
-	@property
-	def python(self):
-		"""
-
-		"""
-		
-		return self['python_venv']['python']
-	
-	@python.setter
-	def python(self, new_python):
-		"""
-
-		"""
-		
-		self['python_venv']['python'] = new_python
-	
-	@python.deleter
-	def python(self):
-		"""
-
-		"""
-		
-		del self['python_venv']['python']
-		if not self['python_venv']:
-			del self['python_venv']
-	
-	def add_data_file(self, name, source):
-		"""
-		
-		"""
-		
-		self['file_extras']['files'].append({
-			'src': name,
-			'dest': source,
-		})
-	
-	def load_defaults(self):
-		"""
-		
-		"""
-		
-		default_json = Path(__file__).parent / 'data' / 'default_template.json'
-		if not default_json.exists():
-			raise FileNotFoundError(str(default_json))
-		
-		self.update(json_loads(default_json.read_text()))
-		
-		
 class InstallerTarball:
 	"""
 	
@@ -252,8 +118,200 @@ class InstallerTarball:
 			if package_name[:len(ignoring_package)].lower() == ignoring_package.lower():
 				return False
 		return True
-		
 
+
+class RPMVenvTemplate(dict):
+	"""
+
+	"""
+	
+	VALID_BLOCKS = ('blocks', 'core', 'extensions', 'python_venv')
+	
+	def __init__(self, base_dir=None, *, load_defaults=True):
+		"""
+
+		"""
+		
+		super().__init__()
+		self._base_dir = Path.cwd() if base_dir is None else Path(base_dir)
+		if load_defaults:
+			self.load_defaults()
+	
+	def __missing__(self, key):
+		"""
+
+		"""
+		
+		if key not in self.VALID_BLOCKS:
+			raise KeyError('"{}" is not a valid rpmvenv extension'.format(key))
+		
+		value = {}
+		self.__setitem__(key, value)
+		return value
+	
+	def __str__(self):
+		"""
+
+		"""
+		
+		return json_dumps(self, default=str, indent=4)
+	
+	@property
+	def name(self):
+		"""
+
+		"""
+		
+		return self['core']['name']
+	
+	@property
+	def version(self):
+		"""
+
+		"""
+		
+		return self['core']['version']
+	
+	@version.setter
+	def version(self, new_version):
+		"""
+
+		"""
+		
+		self['core']['version'] = new_version
+	
+	@version.deleter
+	def version(self):
+		"""
+
+		"""
+		
+		del self['core']['version']
+		if not self['core']:
+			del self['core']
+	
+	@property
+	def release(self):
+		"""
+
+		"""
+		
+		return self['core']['release']
+	
+	@release.setter
+	def release(self, new_release):
+		"""
+
+		"""
+		
+		self['core']['release'] = new_release
+	
+	@release.deleter
+	def release(self):
+		"""
+
+		"""
+		
+		del self['core']['release']
+		if not self['core']:
+			del self['core']
+	
+	def add_data_file(self, name, source):
+		"""
+
+		"""
+		
+		self['file_extras']['files'].append({
+			'src': name,
+			'dest': source,
+		})
+	
+	def load_defaults(self):
+		"""
+
+		"""
+		
+		default_json = Path(__file__).parent / 'data' / 'default_template.json'
+		if not default_json.exists():
+			raise FileNotFoundError(str(default_json))
+		
+		self.update(json_loads(default_json.read_text()))
+
+
+class DockerfileTemplate(dict):
+	"""
+	
+	"""
+	
+	DEFAULTS_FILE = Path(__file__).parent / 'data' / 'dockerfile_rpm_defaults.json'
+	TAG_NAME = 'duoauthproxy_installer'
+	
+	def __getattr__(self, item):
+		"""
+		
+		"""
+		
+		if item == 'client':
+			value = docker_from_env()
+		else:
+			raise AttributeError(item)
+		
+		self.__setattr__(item, value)
+		return value
+	
+	def __init__(self, root_dir, **details):
+		"""
+		
+		"""
+		
+		if Jinja2Environment is None:
+			raise ImportError('The "jinja2" package is required by {}'.format(type(self).__name__))
+		if docker_from_env is None:
+			raise ImportError('The "docker" package is required by {}'.format(type(self).__name__))
+		
+		super().__init__(details)
+		self.root_dir = Path(root_dir)
+		self._template_file_name = 'dockerfile_rpm_template'
+		self.load_defaults('centos-stream9')
+	
+	def __str__(self):
+		"""
+		
+		"""
+		
+		jinja_env = Jinja2Environment()
+		result = jinja_env.from_string((Path(__file__).parent / 'data' / self._template_file_name).with_suffix('.jinja').read_text())
+		return result.render(self)
+	
+	def build(self, name_tag):
+		"""
+		
+		"""
+		
+		dockerfile = self.root_dir / 'Dockerfile'
+		dockerfile.write_text(str(self))
+		return self.client.images.build(path=str(self.root_dir), tag=name_tag)
+	
+	def load_defaults(self, defaults_name):
+		"""
+		
+		"""
+		
+		values = json_loads(self.DEFAULTS_FILE.read_text())
+		self.update(values[defaults_name])
+		
+	def run(self):
+		"""
+		
+		"""
+		
+		self.build(self.TAG_NAME)
+		return self.client.containers.run(self.TAG_NAME, name=self.TAG_NAME+'_temp', remove=True)
+	
+	def test(self):
+		return str(self)
+	
+		
 class DuoAuthProxyInstaller:
 	"""
 	
@@ -266,78 +324,43 @@ class DuoAuthProxyInstaller:
 		
 		"""
 		
-		return self.build_rpm(release_tag, target_install_path=target_install_path)
+		json_file = self.prepare_rpm_structure(release_tag, target_install_path=target_install_path)
+		return DockerfileTemplate(self.root_path, rpmvenv_json_file_name=str(self.relative_to_root(self.staging_dir) / json_file.name)).run().decode('utf8')
 		return self.identify_modules(tarball_path)
 	
-	def __init__(self, version_tag, *, build_dir_name='build', download_dir_name='download'):
+	def __init__(self, version_tag, *, installer_root='root', staging_dir_name='staging', download_dir_name='downloads'):
 		"""
 		
 		"""
 		
 		self._version_tag = version_tag
-		self._build_dir_path = Path.cwd() / build_dir_name
-		self._download_dir = Path.cwd() / download_dir_name
+		self._installer_root = Path(installer_root)
+		self._staging_dir_name = staging_dir_name
+		self._download_dir_name = download_dir_name
 	
 	def __getattr__(self, item):
 		"""
 		
 		"""
 		
-		if item == 'tarball':
+		if item == 'download_dir':
+			value = self.root_path / self._download_dir_name
+			value.mkdir(parents=True, exist_ok=True)
+		elif item == 'root_path':
+			value = self._installer_root if self._installer_root.is_absolute() else Path.cwd() / self._installer_root
+			value.mkdir(parents=True, exist_ok=True)
+		elif item == 'staging_dir':
+			value = self.root_path / self._staging_dir_name
+			value.mkdir(parents=True, exist_ok=True)
+		elif item == 'tarball':
 			value = InstallerTarball(self.download_tarball())
-		elif item == 'build_dir':
-			self._build_dir_path.mkdir(exist_ok=True)
-			value = self._build_dir_path
+		elif item == 'venv':
+			value = VirtualEnvironmentManager(path=self.root_path / 'venv')
 		else:
 			raise AttributeError(item)
 		
 		self.__setattr__(item, value)
 		return value
-		
-	def build_rpm(self, release_tag, *, target_install_path='/opt/duoauthproxy'):
-		"""
-		
-		"""
-		
-		target_install_path = Path(target_install_path)
-		if not target_install_path.is_absolute():
-			raise ValueError('"target-install-path" should be an absolute path')
-		
-		rpmvenv_data = RPMVenvTemplate()
-		rpmvenv_data.version = self._version_tag
-		rpmvenv_data.release = release_tag
-		rpmvenv_data.python = executable
-		
-		conf_content = self.tarball.get_dir_members('conf')
-		if conf_content:
-			conf_dir = self.build_dir / 'conf'
-			conf_dir.mkdir(exist_ok=True)
-			for file_path in conf_content:
-				final_file = conf_dir / file_path.name
-				with final_file.open('wb') as dest_f:
-					with self.tarball.extract_file(file_path) as source_f:
-						copyfileobj(source_f, dest_f)
-				relative_name = final_file.relative_to(self.build_dir)
-				rpmvenv_data.add_data_file(relative_name, (target_install_path / relative_name).relative_to('/'))
-		
-		log_dir = self.build_dir / 'log'
-		log_dir.mkdir(exist_ok=True)
-		log_file = log_dir / 'authproxy.log'
-		log_file.touch()
-		relative_log_name = log_file.relative_to(self.build_dir)
-		rpmvenv_data.add_data_file(relative_log_name, (target_install_path / relative_log_name).relative_to('/'))
-		
-		run_dir = self.build_dir / 'run'
-		run_dir.mkdir(exist_ok=True)
-		run_empty_file = run_dir / '.empty_file'
-		run_empty_file.touch()
-		relative_run_name = run_empty_file.relative_to(self.build_dir)
-		rpmvenv_data.add_data_file(relative_run_name, (target_install_path / relative_run_name).relative_to('/'))
-		
-		rpmvenv_json = self.build_dir / '{}.{}.json'.format(rpmvenv_data.name, rpmvenv_data.version)
-		rpmvenv_json.write_text(str(rpmvenv_data))
-		
-		return str(rpmvenv_data)
 	
 	def collect_wheels(self, tarball_path, build_dir, *, wheels_dir_name='wheels'):
 		"""
@@ -346,6 +369,20 @@ class DuoAuthProxyInstaller:
 		
 		wheels, source_modules, special = self.identify_modules(tarball_path)
 		wheels_dir = build_dir / wheels_dir_name
+	
+	def compile_requirements(self):
+		"""
+		
+		"""
+		
+		# "python_venv": {
+		# 	"pip_flags": "--no-index"
+		# }
+		
+		requirements_file = self.staging_dir / 'requirements.txt'
+		self.venv.install('simplifiedapp')
+		requirements_file.write_text(self.venv('freeze', program='pip').stdout)
+		return requirements_file
 	
 	def download_tarball(self, *, stream_chunk_size=1048576, destination_dir=None, overwrite=False):
 		"""Download tarball
@@ -356,13 +393,12 @@ class DuoAuthProxyInstaller:
 		"""
 		
 		download_url = self.DOWNLOAD_PATH_TEMPLATE.format(version_tag=self._version_tag)
-		destination_dir = self._download_dir if destination_dir is None else Path(destination_dir)
+		destination_dir = self.download_dir if destination_dir is None else Path(destination_dir)
 		local_file = destination_dir / Path(urlparse(download_url).path).name
 		if local_file.exists() and not overwrite:
 			return local_file
 		else:
 			local_file.unlink(missing_ok=True)
-			local_file.parent.mkdir(parents=True, exist_ok=True)
 		
 		with requests_get(download_url, stream=True) as source_file:
 			source_file.raise_for_status()
@@ -371,6 +407,68 @@ class DuoAuthProxyInstaller:
 					file_obj.write(chunk)
 		
 		return local_file
+	
+	def prepare_rpm_structure(self, release_tag, *, target_install_path='/opt/duoauthproxy'):
+		"""
+
+		"""
+		
+		target_install_path = Path(target_install_path)
+		if not target_install_path.is_absolute():
+			raise ValueError('"target-install-path" should be an absolute path')
+		
+		rpmvenv_data = RPMVenvTemplate()
+		rpmvenv_data.version = self._version_tag
+		rpmvenv_data.release = release_tag
+		
+		conf_content = self.tarball.get_dir_members('conf')
+		if conf_content:
+			conf_dir = self.staging_dir / 'conf'
+			conf_dir.mkdir(exist_ok=True)
+			for file_path in conf_content:
+				final_file = conf_dir / file_path.name
+				with final_file.open('wb') as dest_f:
+					with self.tarball.extract_file(file_path) as source_f:
+						copyfileobj(source_f, dest_f)
+				relative_name = self.relative_to_staging(final_file)
+				rpmvenv_data.add_data_file(relative_name, (target_install_path / relative_name).relative_to('/'))
+		
+		log_dir = self.staging_dir / 'log'
+		log_dir.mkdir(exist_ok=True)
+		log_file = log_dir / 'authproxy.log'
+		log_file.touch()
+		relative_log_name = self.relative_to_staging(log_file)
+		rpmvenv_data.add_data_file(relative_log_name, (target_install_path / relative_log_name).relative_to('/'))
+		
+		run_dir = self.staging_dir / 'run'
+		run_dir.mkdir(exist_ok=True)
+		run_empty_file = run_dir / '.empty_file'
+		run_empty_file.touch()
+		relative_run_name = self.relative_to_staging(run_empty_file)
+		rpmvenv_data.add_data_file(relative_run_name, (target_install_path / relative_run_name).relative_to('/'))
+		
+		self.compile_requirements()
+		
+		rpmvenv_json_file = self.staging_dir / '{}.{}.json'.format(rpmvenv_data.name, rpmvenv_data.version)
+		rpmvenv_json_file.write_text(str(rpmvenv_data))
+		
+		return rpmvenv_json_file
+	
+	def relative_to_root(self, some_path):
+		"""
+		
+		"""
+		
+		some_path = Path(some_path)
+		return some_path.relative_to(self.root_path)
+	
+	def relative_to_staging(self, some_path):
+		"""
+
+		"""
+		
+		some_path = Path(some_path)
+		return some_path.relative_to(self.staging_dir)
 	
 
 def build_wheel(source_dir='.', venv='./venv'):

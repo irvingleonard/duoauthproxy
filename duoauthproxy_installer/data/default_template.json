@@ -25,7 +25,9 @@
   "python_venv": {
     "cmd": "virtualenv --pip 24.2.0",
     "flags": [],
-    "pip_flags": "--no-index"
+    "name": "duoauthproxy",
+    "python": "python",
+    "require_setup_py": false,
+    "requirements": ["requirements.txt"]
   }
-  
 }
