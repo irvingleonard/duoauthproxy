@@ -1,5 +1,5 @@
 [build-system]
-requires = ['setuptools', 'wheel', 'requests', 'simplifiedapp']
+requires = ['setuptools', 'wheel', 'devautotools', 'requests', 'simplifiedapp']
 build-backend = 'setuptools.build_meta:__legacy__'
 
 [project]
@@ -32,6 +32,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
 	'coverage',
+]
+docker = [
+	'docker',
+	'jinja2',
 ]
 
 [project.urls]
