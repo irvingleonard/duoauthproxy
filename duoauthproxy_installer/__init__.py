@@ -8,7 +8,6 @@ from logging import getLogger
 from os import name as os_name, walk
 from pathlib import Path
 from shutil import copyfileobj, move
-from sys import executable
 from tarfile import open as tarfile_open
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -28,6 +27,8 @@ except ImportError:
 __version__ = '0.1.0.dev0'
 
 LOGGER = getLogger(__name__)
+
+DEFAULT_TARGET_INSTALL_PATH = '/opt/duoauthproxy'
 NON_PYTHON_MODULES = ['python-']
 		
 
@@ -259,7 +260,7 @@ class DockerfileTemplate(dict):
 		self.__setattr__(item, value)
 		return value
 	
-	def __init__(self, root_dir, **details):
+	def __init__(self, root_dir=Path.cwd(), /, **details):
 		"""
 		
 		"""
@@ -290,7 +291,7 @@ class DockerfileTemplate(dict):
 		
 		dockerfile = self.root_dir / 'Dockerfile'
 		dockerfile.write_text(str(self))
-		return self.client.images.build(path=str(self.root_dir), tag=name_tag)
+		return self.client.images.build(path=str(self.root_dir), tag=name_tag, rm=True, forcerm=True)
 	
 	def load_defaults(self, defaults_name):
 		"""
@@ -308,9 +309,6 @@ class DockerfileTemplate(dict):
 		self.build(self.TAG_NAME)
 		return self.client.containers.run(self.TAG_NAME, name=self.TAG_NAME+'_temp', remove=True)
 	
-	def test(self):
-		return str(self)
-	
 		
 class DuoAuthProxyInstaller:
 	"""
@@ -319,16 +317,18 @@ class DuoAuthProxyInstaller:
 	
 	DOWNLOAD_PATH_TEMPLATE = r'https://dl.duosecurity.com/duoauthproxy-{version_tag}-src.tgz'
 	
-	def __call__(self, release_tag, *, target_install_path='/opt/duoauthproxy'):
+	def __call__(self, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
 		"""
 		
 		"""
 		
 		json_file = self.prepare_rpm_structure(release_tag, target_install_path=target_install_path)
-		return DockerfileTemplate(self.root_path, rpmvenv_json_file_name=str(self.relative_to_root(self.staging_dir) / json_file.name)).run().decode('utf8')
-		return self.identify_modules(tarball_path)
+		return list(Path.cwd().iterdir()) + list((Path.cwd() / 'staging').iterdir())
+		from subprocess import run
+		return run('ls', '-lR', capture_output=True, shell=True, text=True).stdout
+		return json_file
 	
-	def __init__(self, version_tag, *, installer_root='root', staging_dir_name='staging', download_dir_name='downloads'):
+	def __init__(self, version_tag, *, installer_root=Path.cwd(), staging_dir_name='staging', download_dir_name='downloads'):
 		"""
 		
 		"""
@@ -383,6 +383,7 @@ class DuoAuthProxyInstaller:
 		self.venv.install('simplifiedapp')
 		requirements_file.write_text(self.venv('freeze', program='pip').stdout)
 		return requirements_file
+		return self.identify_modules(tarball_path)
 	
 	def download_tarball(self, *, stream_chunk_size=1048576, destination_dir=None, overwrite=False):
 		"""Download tarball
@@ -469,6 +470,14 @@ class DuoAuthProxyInstaller:
 		
 		some_path = Path(some_path)
 		return some_path.relative_to(self.staging_dir)
+	
+	@classmethod
+	def run_in_docker(cls, version_tag, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
+		"""
+		
+		"""
+		
+		return DockerfileTemplate(version_tag=version_tag, release_tag=release_tag, target_install_path=target_install_path).run().decode('utf8')
 	
 
 def build_wheel(source_dir='.', venv='./venv'):

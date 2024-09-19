@@ -8,21 +8,15 @@ FROM {{ from_image }}
 RUN {{ command_line }}
 {% endfor %}
 {% endif -%}
-#Getting the content
-COPY staging /root/staging
-WORKDIR /root
-
 #Building the environment
+WORKDIR /root
 RUN python3 -m venv venv
 RUN ./venv/bin/python -m pip install --upgrade pip
-RUN ./venv/bin/python -m pip uninstall --yes setuptools
-COPY duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl ./
+COPY dist/duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl ./
 RUN ./venv/bin/python -m pip install --upgrade duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl
-RUN ./venv/bin/python -m pip install --upgrade virtualenv rpmvenv
 ENV PATH=/root/venv/bin:$PATH
 RUN mkdir dist
 
 VOLUME ["/root/dist"]
 
-#CMD /bin/bash -c "echo $PATH"
-ENTRYPOINT ["rpmvenv", "--destination", "/root/dist", "{{ rpmvenv_json_file_name }}"]
+ENTRYPOINT ["python", "-m", "duoauthproxy_installer", "DuoAuthProxyInstaller", "{{ version_tag }}", "__call__", "--target_install_path", "{{ target_install_path }}", "{{ release_tag }}"]
