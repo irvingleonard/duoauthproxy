@@ -45,3 +45,6 @@ repository = 'https://github.com/irvingleonard/duoauthproxy.git'
 
 [tool.setuptools.packages.find]
 include = ['duoauthproxy_installer*']
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.jinja"]
