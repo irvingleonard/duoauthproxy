@@ -8,6 +8,7 @@ from logging import getLogger
 from os import name as os_name, walk
 from pathlib import Path
 from shutil import copyfileobj, move
+from subprocess import PIPE, STDOUT, run
 from tarfile import open as tarfile_open
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -247,6 +248,23 @@ class DockerfileTemplate(dict):
 	DEFAULTS_FILE = Path(__file__).parent / 'data' / 'dockerfile_rpm_defaults.json'
 	TAG_NAME = 'duoauthproxy_installer'
 	
+	def __enter__(self):
+		"""
+		
+		"""
+		
+		self.dockerfile = self.root_dir / 'Dockerfile'
+		self.dockerfile.write_text(str(self))
+		return self.dockerfile
+	
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		"""
+		
+		"""
+		
+		LOGGER.debug('Ignoring exception in context: %s(%s) | %s', exc_type, exc_val, exc_tb)
+		self.dockerfile.unlink(missing_ok=True)
+		
 	def __getattr__(self, item):
 		"""
 		
@@ -289,9 +307,9 @@ class DockerfileTemplate(dict):
 		
 		"""
 		
-		dockerfile = self.root_dir / 'Dockerfile'
-		dockerfile.write_text(str(self))
-		return self.client.images.build(path=str(self.root_dir), tag=name_tag, rm=True, forcerm=True)
+		with self as dockerfile:
+			result = self.client.images.build(path=str(dockerfile.parent), tag=name_tag, rm=True, forcerm=True)
+		return result
 	
 	def load_defaults(self, defaults_name):
 		"""
@@ -301,13 +319,22 @@ class DockerfileTemplate(dict):
 		values = json_loads(self.DEFAULTS_FILE.read_text())
 		self.update(values[defaults_name])
 		
-	def run(self):
+	def run(self, fresh_build=True, /, **run_arguments):
 		"""
 		
 		"""
 		
-		self.build(self.TAG_NAME)
-		return self.client.containers.run(self.TAG_NAME, name=self.TAG_NAME+'_temp', remove=True)
+		if fresh_build:
+			self.build(self.TAG_NAME)
+		
+		run_arguments_ = {
+			'name': self.TAG_NAME + '_temp',
+			'remove': True,
+			'stderr': True,
+			'stdout': True,
+		}
+		run_arguments_.update(run_arguments)
+		return self.client.containers.run(self.TAG_NAME, **run_arguments_)
 	
 		
 class DuoAuthProxyInstaller:
@@ -323,10 +350,9 @@ class DuoAuthProxyInstaller:
 		"""
 		
 		json_file = self.prepare_rpm_structure(release_tag, target_install_path=target_install_path)
-		return list(Path.cwd().iterdir()) + list((Path.cwd() / 'staging').iterdir())
-		from subprocess import run
-		return run('ls', '-lR', capture_output=True, shell=True, text=True).stdout
-		return json_file
+		# return list(Path.cwd().iterdir()) + list((Path.cwd() / 'staging').iterdir())
+		# return json_file
+		return run(('rpmvenv', '--destination', '/root/RPMS', str(json_file)), stderr=STDOUT, stdout=PIPE, text=True, check=True).stdout
 	
 	def __init__(self, version_tag, *, installer_root=Path.cwd(), staging_dir_name='staging', download_dir_name='downloads'):
 		"""
@@ -474,12 +500,17 @@ class DuoAuthProxyInstaller:
 		return some_path.relative_to(self.staging_dir)
 	
 	@classmethod
-	def run_in_docker(cls, version_tag, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
+	def run_in_docker(cls, version_tag, release_tag, rpms_dir='./rpms', *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
 		"""
 		
 		"""
 		
-		return DockerfileTemplate(version_tag=version_tag, release_tag=release_tag, target_install_path=target_install_path).run().decode('utf8')
+		rpms_dir = Path(rpms_dir)
+		rpms_dir = rpms_dir.absolute() if rpms_dir.is_absolute() else (Path.cwd() / rpms_dir).absolute()
+		rpms_dir.mkdir(parents=True, exist_ok=True)
+		
+		volumes = {str(rpms_dir): {'bind': '/root/RPMS', 'mode': 'rw'}}
+		return DockerfileTemplate(version_tag=version_tag, release_tag=release_tag, target_install_path=target_install_path).run(volumes=volumes).decode('utf8')
 	
 
 def build_wheel(source_dir='.', venv='./venv'):

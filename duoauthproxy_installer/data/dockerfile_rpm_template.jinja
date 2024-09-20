@@ -14,9 +14,10 @@ RUN python3 -m venv venv
 RUN ./venv/bin/python -m pip install --upgrade pip
 COPY dist/duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl ./
 RUN ./venv/bin/python -m pip install --upgrade duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl
+RUN ./venv/bin/python -m pip install --upgrade rpmvenv virtualenv
 ENV PATH=/root/venv/bin:$PATH
-RUN mkdir dist
 
-VOLUME ["/root/dist"]
+RUN mkdir /root/RPMS
+VOLUME ["/root/RPMS"]
 
 ENTRYPOINT ["python", "-m", "duoauthproxy_installer", "DuoAuthProxyInstaller", "{{ version_tag }}", "__call__", "--target_install_path", "{{ target_install_path }}", "{{ release_tag }}"]
