@@ -52,32 +52,54 @@ class InstallerTarball:
 		
 		"""
 		
-		if item == 'tarball_obj':
-			value = tarfile_open(name=self._path)
-		elif item == 'member_paths':
+		if item == 'member_paths':
 			value = [Path(name) for name in self.tarball_obj.getnames()]
 			if not value:
 				raise RuntimeError('Empty tarball "{}"'.format(str(self._path)))
+		elif item == 'packages_dir':
+			value = self.root_dir / 'pkgs'
 		elif item == 'root_dir':
 			value = self.member_paths[0].parts[0]
 			for member in self.member_paths:
 				if value != member.parts[0]:
 					raise ValueError('Unknown tarball structure')
 			value = Path(value)
+		elif item == 'tarball_obj':
+			value = tarfile_open(name=self._path)
 		else:
 			raise AttributeError(item)
 		
 		self.__setattr__(item, value)
 		return value
 		
-	def extract_file(self, path):
+	def extract_path(self, path, destination, *, parents=True, exist_ok=False):
 		"""
 		
 		"""
 		
+		destination = Path(destination)
 		member = self.tarball_obj.getmember(str(path))
-		return self.tarball_obj.extractfile(member)
+		if member.isfile():
+			if destination.is_dir():
+				destination = destination / Path(member.name).name
+			if destination.exists() and not exist_ok:
+				raise FileExistsError(str(destination))
+			destination.parent.mkdir(parents=parents, exist_ok=True)
+			with destination.open('wb') as dest_f:
+				with self.tarball_obj.extractfile(member) as source_f:
+					copyfileobj(source_f, dest_f)
+			return destination
+		elif member.isdir():
+			raise NotImplementedError('Extract a directory')
+		else:
+			raise NotImplementedError("Extracting something that's not a file or directory")
+	
+	def extract_package(self, package_name, destination):
+		"""
 		
+		"""
+		
+		return self.extract_path(self.packages_dir / package_name, destination)
 	
 	def get_dir_members(self, directory):
 		"""
@@ -96,11 +118,9 @@ class InstallerTarball:
 		Given a tarball, detect all the packages present and sort wheels, source modules, and "special cases" (mostly "cryptography")
 		"""
 		
-		packages_dir = self.root_dir / 'pkgs'
-		
 		wheels, source_modules, special = [], [], []
 		for member in self.member_paths:
-			if member.parent == packages_dir:
+			if member.parent == self.packages_dir:
 				if member.suffix == '.whl':
 					wheels.append(member.name)
 				elif self.is_python_module(member.name) and (member / 'setup.py' in self.member_paths):
@@ -354,7 +374,7 @@ class DuoAuthProxyInstaller:
 		# return json_file
 		return run(('rpmvenv', '--destination', '/root/RPMS', str(json_file)), stderr=STDOUT, stdout=PIPE, text=True, check=True).stdout
 	
-	def __init__(self, version_tag, *, installer_root=Path.cwd(), staging_dir_name='staging', download_dir_name='downloads'):
+	def __init__(self, version_tag, *, installer_root=Path.cwd(), staging_dir_name='staging', download_dir_name='downloads', wheels_dir_name='wheels'):
 		"""
 		
 		"""
@@ -363,6 +383,7 @@ class DuoAuthProxyInstaller:
 		self._installer_root = Path(installer_root)
 		self._staging_dir_name = staging_dir_name
 		self._download_dir_name = download_dir_name
+		self._wheels_dir_name = wheels_dir_name
 	
 	def __getattr__(self, item):
 		"""
@@ -384,6 +405,9 @@ class DuoAuthProxyInstaller:
 			value = VirtualEnvironmentManager(path=self.root_path / 'venv')
 		elif item == 'template_venv':
 			value = VirtualEnvironmentManager(path=self.root_path / 'template_venv')
+		elif item == 'wheels_dir':
+			value = self.root_path / self._wheels_dir_name
+			value.mkdir(parents=True, exist_ok=True)
 		else:
 			raise AttributeError(item)
 		
@@ -396,7 +420,15 @@ class DuoAuthProxyInstaller:
 		"""
 		
 		wheels, source_modules, special = self.identify_modules(tarball_path)
-		wheels_dir = build_dir / wheels_dir_name
+		local_wheels, missing_wheels = {}, {}
+		for wheel in wheels:
+			wheel_data = self.template_venv.parse_wheel_name(wheel)
+			if self.template_venv.compatible_wheel(wheel):
+				local_wheels[wheel_data['distribution']] = wheel
+			else:
+				missing_wheels[wheel_data['distribution']] = wheel_data['version']
+			
+		
 	
 	def compile_requirements(self):
 		"""
@@ -455,10 +487,7 @@ class DuoAuthProxyInstaller:
 			conf_dir = self.staging_dir / 'conf'
 			conf_dir.mkdir(exist_ok=True)
 			for file_path in conf_content:
-				final_file = conf_dir / file_path.name
-				with final_file.open('wb') as dest_f:
-					with self.tarball.extract_file(file_path) as source_f:
-						copyfileobj(source_f, dest_f)
+				final_file = self.tarball.extract_path(file_path, conf_dir, exist_ok=True)
 				relative_name = self.relative_to_staging(final_file)
 				rpmvenv_data.add_data_file(relative_name, (target_install_path / relative_name).relative_to('/'))
 		
