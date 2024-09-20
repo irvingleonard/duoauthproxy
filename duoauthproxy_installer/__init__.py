@@ -356,6 +356,8 @@ class DuoAuthProxyInstaller:
 			value = InstallerTarball(self.download_tarball())
 		elif item == 'venv':
 			value = VirtualEnvironmentManager(path=self.root_path / 'venv')
+		elif item == 'template_venv':
+			value = VirtualEnvironmentManager(path=self.root_path / 'template_venv')
 		else:
 			raise AttributeError(item)
 		
