@@ -71,6 +71,20 @@ class InstallerTarball:
 		
 		self.__setattr__(item, value)
 		return value
+	
+	def collect_wheels(self, *, wheels_dir_name='wheels'):
+		"""
+
+		"""
+		
+		wheels, source_modules, special = self.identify_modules(tarball_path)
+		local_wheels, missing_wheels = {}, {}
+		for wheel in wheels:
+			wheel_data = self.template_venv.parse_wheel_name(wheel)
+			if self.template_venv.compatible_wheel(wheel):
+				local_wheels[wheel_data['distribution']] = wheel
+			else:
+				missing_wheels[wheel_data['distribution']] = wheel_data['version']
 		
 	def extract_path(self, path, destination, *, parents=True, exist_ok=False):
 		"""
@@ -140,6 +154,31 @@ class InstallerTarball:
 			if package_name[:len(ignoring_package)].lower() == ignoring_package.lower():
 				return False
 		return True
+	
+	def prepare_assets(self, output_dir=Path.cwd()):
+		"""
+
+		"""
+		
+		output_dir = Path(output_dir)
+		
+		conf_content = self.tarball.get_dir_members('conf')
+		if conf_content:
+			conf_dir = output_dir / 'conf'
+			conf_dir.mkdir(exist_ok=True)
+			for file_path in conf_content:
+				final_file = self.tarball.extract_path(file_path, conf_dir, exist_ok=True)
+		
+		log_dir = output_dir / 'log'
+		log_dir.mkdir(exist_ok=True)
+		log_file = log_dir / 'authproxy.log'
+		log_file.touch()
+		
+		run_dir = output_dir / 'run'
+		run_dir.mkdir(exist_ok=True)
+		run_empty_file = run_dir / '.empty_file'
+		run_empty_file.touch()
+		
 
 
 class RPMVenvTemplate(dict):
