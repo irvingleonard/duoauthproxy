@@ -7,7 +7,7 @@ from json import dumps as json_dumps, loads as json_loads
 from logging import getLogger
 from os import name as os_name, walk
 from pathlib import Path, PurePath
-from shutil import copyfileobj, move
+from shutil import copyfileobj, move, rmtree
 from subprocess import PIPE, STDOUT, run
 from tarfile import open as tarfile_open
 from tempfile import TemporaryDirectory
@@ -39,6 +39,7 @@ class InstallerTarball:
 	"""
 	
 	NON_PYTHON_MODULES = ('python-',)
+	BASIC_PYTHON_MODULES = ('pip', 'setuptools', 'setuptools_scm', 'wheel')
 	
 	def __init__(self, file_path):
 		"""
@@ -61,11 +62,11 @@ class InstallerTarball:
 		elif item == 'packages_dir':
 			value = self.root_dir / 'pkgs'
 		elif item == 'root_dir':
-			value = Path(self.members[0].name).parts[0]
+			value = PurePath(self.members[0].name).parts[0]
 			for member in self.member_paths:
 				if value != member.parts[0]:
 					raise ValueError('Unknown tarball structure')
-			value = Path(value)
+			value = PurePath(value)
 		elif item == 'tarball_obj':
 			value = tarfile_open(name=self._path)
 		else:
@@ -74,26 +75,39 @@ class InstallerTarball:
 		self.__setattr__(item, value)
 		return value
 	
-	def collect_wheels(self, *, wheels_dir_name='wheels'):
+	def build_sources(self, *source_modules, wheels_dir):
 		"""
 
 		"""
 		
-		wheels, source_modules, special = self.identify_modules(tarball_path)
-		local_wheels, missing_wheels = {}, {}
-		for wheel in wheels:
-			wheel_data = self.template_venv.parse_wheel_name(wheel)
-			if self.template_venv.compatible_wheel(wheel):
-				local_wheels[wheel_data['distribution']] = wheel
-			else:
-				missing_wheels[wheel_data['distribution']] = wheel_data['version']
+		result = []
+		with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+			venv.install('setuptools', 'setuptools_scm', 'wheel')
+			with TemporaryDirectory() as temp_dir_name:
+				temp_dir = Path(temp_dir_name)
+				for module in source_modules:
+					module_dir = temp_dir / module
+					self.extract_package(module, temp_dir)
+					try:
+						venv('setup.py', 'bdist_wheel', cwd=module_dir)
+					except Exception:
+						LOGGER.exception("Couldn't build module: %s", module)
+					else:
+						module_dist = list((module_dir / 'dist').iterdir())
+						if not module_dist:
+							raise RuntimeError('No resulting wheel')
+						elif len(module_dist) > 1:
+							raise RuntimeError('Too many resulting files')
+						else:
+							move(module_dist[0], wheels_dir)
+							result.append(wheels_dir / module_dist[0].name)
+		return result
 		
 	def extract_file(self, path, destination, *, parents=True, exist_ok=False, fail_silently=False):
 		"""
 		
 		"""
 		
-		# print(self.member_paths)
 		path = Path(path)
 		member = self.member_paths[path]
 		if not member.isfile():
@@ -170,31 +184,58 @@ class InstallerTarball:
 				return False
 		return True
 	
-	def prepare_assets(self, output_dir=Path.cwd()):
+	def prepare_assets(self, output_dir=Path.cwd(), clean_output_first=False, wheels_dir_name='wheels'):
 		"""
 
 		"""
 		
-		output_dir = Path(output_dir)
+		result = {}
 		
-		conf_content = self.tarball.get_dir_members('conf')
+		output_dir = Path(output_dir).absolute()
+		if clean_output_first and output_dir.exists():
+			rmtree(output_dir)
+		output_dir.mkdir(parents=True, exist_ok=True)
+		
+		conf_content = self.get_dir_members('conf')
 		if conf_content:
+			result['conf'] = []
 			conf_dir = output_dir / 'conf'
 			conf_dir.mkdir(exist_ok=True)
 			for file_path in conf_content:
-				final_file = self.tarball.extract_path(file_path, conf_dir, exist_ok=True)
+				result['conf'].append(self.extract_file(file_path, conf_dir, exist_ok=True))
 		
-		log_dir = output_dir / 'log'
-		log_dir.mkdir(exist_ok=True)
-		log_file = log_dir / 'authproxy.log'
-		log_file.touch()
+		wheels, source_modules, special = self.identify_modules()
 		
-		run_dir = output_dir / 'run'
-		run_dir.mkdir(exist_ok=True)
-		run_empty_file = run_dir / '.empty_file'
-		run_empty_file.touch()
+		local_wheels, result['missing_wheels'] = {}, {}
+		with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+			for wheel in wheels:
+				wheel_data = venv.parse_wheel_name(wheel)
+				if wheel_data['distribution'] in self.BASIC_PYTHON_MODULES:
+					continue
+				if venv.compatible_wheel(wheel):
+					local_wheels[wheel_data['distribution']] = wheel
+					if wheel_data['distribution'] in result['missing_wheels']:
+						del result['missing_wheels'][wheel_data['distribution']]
+				elif wheel_data['distribution'] not in local_wheels:
+					result['missing_wheels'][wheel_data['distribution']] = wheel_data['version']
 		
-
+		wheels_dir = (output_dir / wheels_dir_name).absolute()
+		
+		if local_wheels:
+			wheels_dir.mkdir(parents=True, exist_ok=True)
+			result['local_wheels'] = []
+			for wheel in local_wheels.values():
+				result['local_wheels'].append(self.extract_package(wheel, wheels_dir))
+		# if missing_wheels:
+		# 	with VirtualEnvironmentManager(path=None, show_output=False) as template_venv:
+		# 		template_venv.download(*['=='.join(item) for item in missing_wheels.items()], dest=str(wheels_dir))
+		
+		if source_modules:
+			wheels_dir.mkdir(parents=True, exist_ok=True)
+			result['built_wheels'] = self.build_sources(*source_modules, wheels_dir=wheels_dir)
+		
+		return result
+		
 
 class RPMVenvTemplate(dict):
 	"""
@@ -337,7 +378,7 @@ class DockerfileTemplate(dict):
 		"""
 		
 		LOGGER.debug('Ignoring exception in context: %s(%s) | %s', exc_type, exc_val, exc_tb)
-		# self.dockerfile.unlink(missing_ok=True)
+		self.dockerfile.unlink(missing_ok=True)
 		
 	def __getattr__(self, item):
 		"""
@@ -465,10 +506,8 @@ class DuoAuthProxyInstaller:
 			value = InstallerTarball(self.download_tarball())
 		elif item == 'venv':
 			value = VirtualEnvironmentManager(path=self.root_path / 'venv')
-			value('-m', 'pip', 'install', '--upgrade', 'pip')
 		elif item == 'template_venv':
 			value = VirtualEnvironmentManager(path=self.root_path / 'template_venv')
-			value('-m', 'pip', 'install', '--upgrade', 'pip')
 		elif item == 'wheels_dir':
 			value = self.root_path / self._wheels_dir_name
 			value.mkdir(parents=True, exist_ok=True)
