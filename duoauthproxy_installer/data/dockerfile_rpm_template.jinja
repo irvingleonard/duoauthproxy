@@ -20,4 +20,4 @@ ENV PATH=/root/venv/bin:$PATH
 RUN mkdir /root/RPMS
 VOLUME ["/root/RPMS"]
 
-ENTRYPOINT ["python", "-m", "duoauthproxy_installer", "DuoAuthProxyInstaller", "{{ version_tag }}", "__call__", "--target_install_path", "{{ target_install_path }}", "{{ release_tag }}"]
+ENTRYPOINT ["python", "-m", "duoauthproxy_installer", "DuoAuthProxyInstaller", "{{ version_tag }}", "__call__", "--target_install_path", "{{ target_install_path }}", "--dist_dir", "{{ dist_dir }}", "{{ release_tag }}"]
