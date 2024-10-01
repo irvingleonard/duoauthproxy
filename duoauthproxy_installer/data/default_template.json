@@ -23,11 +23,9 @@
     "group": "root"
   },
   "python_venv": {
-    "cmd": "virtualenv --pip 24.2.0",
+    "cmd": "python3 -m venv",
     "flags": [],
-    "name": "duoauthproxy",
-    "python": "python",
-    "require_setup_py": false,
-    "requirements": ["requirements.txt"]
+    "pip_flags": "--no-index",
+    "require_setup_py": false
   }
 }
