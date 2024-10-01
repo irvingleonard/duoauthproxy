@@ -3,14 +3,14 @@
 Create installers for duoauthproxy distributions.
 """
 
+from atexit import register as atexit_register
 from json import dumps as json_dumps, loads as json_loads
 from logging import getLogger
-from os import name as os_name, walk
 from pathlib import Path, PurePath
-from shutil import copyfileobj, move, rmtree
+from shutil import copytree, copyfileobj, move, rmtree
 from subprocess import PIPE, STDOUT, run
 from tarfile import open as tarfile_open
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, mkdtemp
 from urllib.parse import urlparse
 
 from devautotools import VirtualEnvironmentManager
@@ -75,14 +75,14 @@ class InstallerTarball:
 		self.__setattr__(item, value)
 		return value
 	
-	def build_sources(self, *source_modules, wheels_dir):
+	def build_sources(self, *source_modules, wheels_dir, venv_wheels={}):
 		"""
 
 		"""
 		
 		result = []
 		with VirtualEnvironmentManager(path=None, show_output=False) as venv:
-			venv.install('setuptools', 'setuptools_scm', 'wheel')
+			venv('-m', 'pip', 'install', '--upgrade', *['=='.join(item) for item in venv_wheels.items()])
 			with TemporaryDirectory() as temp_dir_name:
 				temp_dir = Path(temp_dir_name)
 				for module in source_modules:
@@ -206,33 +206,30 @@ class InstallerTarball:
 		
 		wheels, source_modules, special = self.identify_modules()
 		
-		local_wheels, result['missing_wheels'] = {}, {}
+		venv_wheels, local_wheels, result['missing_wheels'] ={}, {}, {}
 		with VirtualEnvironmentManager(path=None, show_output=False) as venv:
 			for wheel in wheels:
 				wheel_data = venv.parse_wheel_name(wheel)
 				if wheel_data['distribution'] in self.BASIC_PYTHON_MODULES:
-					continue
-				if venv.compatible_wheel(wheel):
+					venv_wheels[wheel_data['distribution']] = wheel_data['version']
+				elif venv.compatible_wheel(wheel):
 					local_wheels[wheel_data['distribution']] = wheel
 					if wheel_data['distribution'] in result['missing_wheels']:
 						del result['missing_wheels'][wheel_data['distribution']]
 				elif wheel_data['distribution'] not in local_wheels:
 					result['missing_wheels'][wheel_data['distribution']] = wheel_data['version']
 		
-		wheels_dir = (output_dir / wheels_dir_name).absolute()
+		result['wheels_dir'] = (output_dir / wheels_dir_name).absolute()
 		
 		if local_wheels:
-			wheels_dir.mkdir(parents=True, exist_ok=True)
+			result['wheels_dir'].mkdir(parents=True, exist_ok=True)
 			result['local_wheels'] = []
 			for wheel in local_wheels.values():
-				result['local_wheels'].append(self.extract_package(wheel, wheels_dir))
-		# if missing_wheels:
-		# 	with VirtualEnvironmentManager(path=None, show_output=False) as template_venv:
-		# 		template_venv.download(*['=='.join(item) for item in missing_wheels.items()], dest=str(wheels_dir))
+				result['local_wheels'].append(self.extract_package(wheel, result['wheels_dir']))
 		
 		if source_modules:
-			wheels_dir.mkdir(parents=True, exist_ok=True)
-			result['built_wheels'] = self.build_sources(*source_modules, wheels_dir=wheels_dir)
+			result['wheels_dir'].mkdir(parents=True, exist_ok=True)
+			result['built_wheels'] = self.build_sources(*source_modules, wheels_dir=result['wheels_dir'], venv_wheels=venv_wheels)
 		
 		return result
 		
@@ -459,32 +456,20 @@ class DuoAuthProxyInstaller:
 	
 	DOWNLOAD_PATH_TEMPLATE = r'https://dl.duosecurity.com/duoauthproxy-{version_tag}-src.tgz'
 	
-	def __call__(self, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
+	def __call__(self, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH, dist_dir='dist'):
 		"""
 		
 		"""
 		
-		# wheels, source_modules, special = self.tarball.identify_modules()
-		# result = []
-		# for module in source_modules:
-		# 	result.append(self.tarball.extract_package(module, Path.cwd() / 'temp'))
-		# return result
+		return self.build_rpm(release_tag=release_tag, target_install_path=target_install_path, rpms_dir=dist_dir)
 		
-		result = self.collect_wheels()
-		# return result
-		# json_file = self.prepare_rpm_structure(release_tag, target_install_path=target_install_path)
-		return list(Path.cwd().iterdir()) + list((Path.cwd() / 'wheels').iterdir())
-		# return json_file
-		return run(('rpmvenv', '--destination', '/root/RPMS', str(json_file)), stderr=STDOUT, stdout=PIPE, text=True, check=True).stdout
-	
-	def __init__(self, version_tag, *, installer_root=Path.cwd(), staging_dir_name='staging', download_dir_name='downloads', wheels_dir_name='wheels'):
+	def __init__(self, version_tag, *, installer_root=Path.cwd(), download_dir_name='downloads', wheels_dir_name='wheels'):
 		"""
 		
 		"""
 		
 		self._version_tag = version_tag
 		self._installer_root = Path(installer_root)
-		self._staging_dir_name = staging_dir_name
 		self._download_dir_name = download_dir_name
 		self._wheels_dir_name = wheels_dir_name
 	
@@ -493,98 +478,87 @@ class DuoAuthProxyInstaller:
 		
 		"""
 		
-		if item == 'download_dir':
+		if item == 'assets_dir':
+			value = Path(mkdtemp()).absolute()
+			atexit_register(rmtree, value, ignore_errors=True)
+		elif item == 'download_dir':
 			value = self.root_path / self._download_dir_name
 			value.mkdir(parents=True, exist_ok=True)
 		elif item == 'root_path':
 			value = self._installer_root if self._installer_root.is_absolute() else Path.cwd() / self._installer_root
 			value.mkdir(parents=True, exist_ok=True)
-		elif item == 'staging_dir':
-			value = self.root_path / self._staging_dir_name
-			value.mkdir(parents=True, exist_ok=True)
+		elif item == 'requirements':
+			with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+				venv.install(*[str(wheel) for wheel in self.wheels_dir.iterdir() if wheel.suffix == '.whl'], no_index=True)
+				value = venv('freeze', program='pip').stdout
 		elif item == 'tarball':
 			value = InstallerTarball(self.download_tarball())
-		elif item == 'venv':
-			value = VirtualEnvironmentManager(path=self.root_path / 'venv')
-		elif item == 'template_venv':
-			value = VirtualEnvironmentManager(path=self.root_path / 'template_venv')
+		elif item == 'tarball_assets':
+			value = self.tarball.prepare_assets(output_dir=self.assets_dir)
 		elif item == 'wheels_dir':
 			value = self.root_path / self._wheels_dir_name
-			value.mkdir(parents=True, exist_ok=True)
+			copytree(self.tarball_assets['wheels_dir'], value, dirs_exist_ok=True)
+			if self.tarball_assets['missing_wheels']:
+				with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+					venv.download(*['=='.join(item) for item in self.tarball_assets['missing_wheels'].items()], dest=str(value))
 		else:
 			raise AttributeError(item)
 		
 		self.__setattr__(item, value)
 		return value
 	
-	def build_sources(self, source_modules):
+	def build_rpm(self, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH, rpms_dir='RPMS', staging_dir='rpm_data'):
+		"""
+
 		"""
 		
-		"""
+		target_install_path = Path(target_install_path)
+		if not target_install_path.is_absolute():
+			raise ValueError('"target-install-path" should be an absolute path')
 		
-		self.venv.install('wheel')
+		staging_dir = Path(staging_dir).absolute()
+		staging_dir.mkdir(exist_ok=True)
 		
-		result = []
-		with TemporaryDirectory() as temp_dir_name:
-			temp_dir = Path(temp_dir_name)
-			for module in source_modules:
-				module_dir = temp_dir / module
-				self.tarball.extract_package(module, temp_dir)
-				self.venv('setup.py', 'bdist_wheel', cwd=module_dir)
-				
-				module_dist = list((module_dir / 'dist').iterdir())
-				if not module_dist:
-					raise RuntimeError('No resulting wheel')
-				elif len(module_dist) > 1:
-					raise RuntimeError('Too many resulting files')
-				else:
-					module_wheel = self.wheels_dir / module_dist[0].name
-					module_dist[0].rename(module_wheel)
-					result.append(module_wheel)
-	
-	def collect_wheels(self):
-		"""
+		rpmvenv_data = RPMVenvTemplate()
+		rpmvenv_data.version = self._version_tag
+		rpmvenv_data.release = release_tag
 		
-		"""
+		if self.tarball_assets['conf']:
+			conf_dir = staging_dir / 'conf'
+			conf_dir.mkdir(exist_ok=True)
+			for file_path in self.tarball_assets['conf']:
+				final_file = Path(move(file_path, conf_dir)).absolute()
+				relative_name = final_file.relative_to(staging_dir)
+				rpmvenv_data.add_data_file(relative_name, (target_install_path / relative_name).relative_to('/'))
 		
-		wheels, source_modules, special = self.tarball.identify_modules()
+		log_dir = staging_dir / 'log'
+		log_dir.mkdir(exist_ok=True)
+		log_file = log_dir / 'authproxy.log'
+		log_file.touch()
+		relative_log_name = log_file.relative_to(staging_dir)
+		rpmvenv_data.add_data_file(relative_log_name, (target_install_path / relative_log_name).relative_to('/'))
 		
-		local_wheels, missing_wheels = {}, {}
-		for wheel in wheels:
-			wheel_data = self.template_venv.parse_wheel_name(wheel)
-			if wheel_data['distribution'] == 'pip':
-				continue
-			if self.template_venv.compatible_wheel(wheel):
-				local_wheels[wheel_data['distribution']] = wheel
-				if wheel_data['distribution'] in missing_wheels:
-					del missing_wheels[wheel_data['distribution']]
-			elif wheel_data['distribution'] not in local_wheels:
-				missing_wheels[wheel_data['distribution']] = wheel_data['version']
+		run_dir = staging_dir / 'run'
+		run_dir.mkdir(exist_ok=True)
+		run_empty_file = run_dir / '.empty_file'
+		run_empty_file.touch()
+		relative_run_name = run_empty_file.relative_to(staging_dir)
+		rpmvenv_data.add_data_file(relative_run_name, (target_install_path / relative_run_name).relative_to('/'))
 		
-		for wheel in local_wheels.values():
-			self.tarball.extract_package(wheel, self.wheels_dir)
-		self.template_venv.download(*['=='.join(item) for item in missing_wheels.items()], dest=str(self.wheels_dir))
+		requirements_file = staging_dir / 'requirements.txt'
+		requirements_file.write_text(self.requirements)
 		
-		built_wheels = self.build_sources(source_modules)
-		# temp_venv = VirtualEnvironmentManager(path=None)
-		# temp_venv('-m', 'pip', 'install', '--upgrade', '--find-links', str(self.wheels_dir), *complimentary_wheels)
+		rpmvenv_data['python_venv']['name'] = target_install_path.name
+		rpmvenv_data['python_venv']['path'] = target_install_path.parent.relative_to('/')
+		rpmvenv_data['python_venv']['requirements'] = [requirements_file.relative_to(staging_dir)]
 		
-		return built_wheels
-	
-	def compile_requirements(self):
-		"""
+		rpmvenv_json_file = staging_dir / '{}.{}.json'.format(rpmvenv_data.name, rpmvenv_data.version)
+		rpmvenv_json_file.write_text(str(rpmvenv_data))
 		
-		"""
+		rpms_dir = (Path.cwd() if rpms_dir is None else Path(rpms_dir)).absolute()
+		rpms_dir.mkdir(exist_ok=True)
 		
-		# "python_venv": {
-		# 	"pip_flags": "--no-index"
-		# }
-		
-		requirements_file = self.staging_dir / 'requirements.txt'
-		self.venv.install('simplifiedapp')
-		requirements_file.write_text(self.venv('freeze', program='pip').stdout)
-		return requirements_file
-		return self.identify_modules(tarball_path)
+		return run(('rpmvenv', '--destination', str(rpms_dir), str(rpmvenv_json_file)), stderr=STDOUT, stdout=PIPE, text=True, check=True, cwd=staging_dir).stdout
 	
 	def download_tarball(self, *, stream_chunk_size=1048576, destination_dir=None, overwrite=False):
 		"""Download tarball
@@ -610,228 +584,23 @@ class DuoAuthProxyInstaller:
 		
 		return local_file
 	
-	def prepare_rpm_structure(self, release_tag, *, target_install_path='/opt/duoauthproxy'):
-		"""
-
-		"""
-		
-		target_install_path = Path(target_install_path)
-		if not target_install_path.is_absolute():
-			raise ValueError('"target-install-path" should be an absolute path')
-		
-		rpmvenv_data = RPMVenvTemplate()
-		rpmvenv_data.version = self._version_tag
-		rpmvenv_data.release = release_tag
-		
-		conf_content = self.tarball.get_dir_members('conf')
-		if conf_content:
-			conf_dir = self.staging_dir / 'conf'
-			conf_dir.mkdir(exist_ok=True)
-			for file_path in conf_content:
-				final_file = self.tarball.extract_file(file_path, conf_dir, exist_ok=True)
-				relative_name = self.relative_to_staging(final_file)
-				rpmvenv_data.add_data_file(relative_name, (target_install_path / relative_name).relative_to('/'))
-		
-		log_dir = self.staging_dir / 'log'
-		log_dir.mkdir(exist_ok=True)
-		log_file = log_dir / 'authproxy.log'
-		log_file.touch()
-		relative_log_name = self.relative_to_staging(log_file)
-		rpmvenv_data.add_data_file(relative_log_name, (target_install_path / relative_log_name).relative_to('/'))
-		
-		run_dir = self.staging_dir / 'run'
-		run_dir.mkdir(exist_ok=True)
-		run_empty_file = run_dir / '.empty_file'
-		run_empty_file.touch()
-		relative_run_name = self.relative_to_staging(run_empty_file)
-		rpmvenv_data.add_data_file(relative_run_name, (target_install_path / relative_run_name).relative_to('/'))
-		
-		self.compile_requirements()
-		
-		rpmvenv_json_file = self.staging_dir / '{}.{}.json'.format(rpmvenv_data.name, rpmvenv_data.version)
-		rpmvenv_json_file.write_text(str(rpmvenv_data))
-		
-		return rpmvenv_json_file
-	
-	def relative_to_root(self, some_path):
-		"""
-		
-		"""
-		
-		some_path = Path(some_path)
-		return some_path.relative_to(self.root_path)
-	
-	def relative_to_staging(self, some_path):
-		"""
-
-		"""
-		
-		some_path = Path(some_path)
-		return some_path.relative_to(self.staging_dir)
-	
 	@classmethod
-	def run_in_docker(cls, version_tag, release_tag, rpms_dir='./rpms', *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
+	def run_in_docker(cls, version_tag, release_tag, dist_dir='dist', *, target_install_path=DEFAULT_TARGET_INSTALL_PATH):
 		"""
 		
 		"""
 		
-		rpms_dir = Path(rpms_dir)
-		rpms_dir = rpms_dir.absolute() if rpms_dir.is_absolute() else (Path.cwd() / rpms_dir).absolute()
-		rpms_dir.mkdir(parents=True, exist_ok=True)
+		host_dist_dir = Path(dist_dir)
+		if not host_dist_dir.is_absolute():
+			host_dist_dir = (Path.cwd() / host_dist_dir).absolute()
+		host_dist_dir.mkdir(parents=True, exist_ok=True)
 		
-		volumes = {str(rpms_dir): {'bind': '/root/RPMS', 'mode': 'rw'}}
-		return DockerfileTemplate(version_tag=version_tag, release_tag=release_tag, target_install_path=target_install_path).run(volumes=volumes).decode('utf8')
-	
-
-def build_wheel(source_dir='.', venv='./venv'):
-	"""Build a wheel
-	Get a wheel from the source tree of a module.
-	"""
-	
-	source_dir = Path(source_dir)
-	LOGGER.info('Building wheel for: %s', source_dir.resolve().name)
-	if not isinstance(venv, VirtualEnvironmentManager):
-		venv = VirtualEnvironmentManager(path=venv)
-	build_requirements = ['wheel']
-	if os_name == 'nt':
-		build_requirements += ['py2exe']
-	venv.install(*build_requirements, no_index=False, no_deps=False)
-	
-	venv('setup.py', 'bdist_wheel', cwd=source_dir)
-	result = list((source_dir / 'dist').iterdir())
-	if not result:
-		raise RuntimeError('No resulting wheel')
-	elif len(result) > 1:
-		raise RuntimeError('Too many resulting files')
-	else:
-		return result[0]
-	
-
-def get_wheels(tarball, output_dir='./wheels', include_simple_wheels=False, include_random_packages=['twisted-iocpsupport']):
-	"""Get wheels
-	Given a tarball, detect all the packages in wheels present and build the ones that live as source trees. Extract/put all wheels in the "output_dir" 
-	"""
-	
-	tarball = Path(tarball)
-	tarball_obj = tarfile_open(name=tarball)
-	
-	output_dir = Path(output_dir)
-	LOGGER.debug('Confirming output directory: %s', output_dir)
-	output_dir.mkdir(parents=True, exist_ok=True)
-	
-	LOGGER.debug('Extracting content from tarball: %s', tarball)
-	with TemporaryDirectory() as workdir:
-		workdir = Path(workdir)
-		tarball_obj.extractall(path=workdir)
-		tarball_root = list(workdir.iterdir())
-		if not tarball_root:
-			raise ValueError('Empty tar archive')
-		elif len(tarball_root) > 1:
-			raise ValueError('Unknown tarball structure')
-		else:
-			tarball_root = tarball_root[0]
-		
-		LOGGER.info('Working with: %s', tarball_root.name)
-		result = []
-		work_venv = VirtualEnvironmentManager(path=workdir / '.venv', overwrite=True)
-		work_venv.install('build', no_index=False, no_deps=False)
-		
-		simple_wheels = {}
-		for entry in (tarball_root / 'pkgs').iterdir():
-			if not is_python_module(entry.name):
-				continue
-			if entry.suffix == '.whl':
-				details = work_venv.parse_wheel_name(entry.name)
-				pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
-				if pypi_wheel not in simple_wheels:
-					simple_wheels[pypi_wheel] = None
-				if work_venv.compatible_wheel(entry.name):
-					simple_wheels[pypi_wheel] = entry
-		
-		simple_pypi_wheels = []
-		LOGGER.info('Processing simple wheels: %s', list(simple_wheels.keys()))
-		for pypi_entry, wheel in simple_wheels.items():
-			if wheel is None:
-				simple_pypi_wheels.append(pypi_entry)
-			else:
-				if include_simple_wheels:
-					wheel = move(wheel, output_dir / wheel.name)
-					LOGGER.info('Finished placing wheel: %s', wheel)
-					work_venv.install(wheel)
-				else:
-					simple_pypi_wheels.append(pypi_entry)
-		
-		if simple_pypi_wheels:
-			work_venv.download(*simple_pypi_wheels, dest=str(output_dir))
-			LOGGER.warning('Installing incompatible simple wheels from pypi: %s', simple_pypi_wheels)
-			work_venv.install(*simple_pypi_wheels, no_index=False)
-		
-		source_wheels, weird_structures = {}, []
-		for entry in (tarball_root / 'pkgs').iterdir():
-			if not is_python_module(entry.name):
-				continue
-			if entry.is_dir():
-				if not (entry / 'setup.py').is_file():
-					weird_structures.append(entry)
-					continue	
-				wheel = build_wheel(source_dir=entry, venv=work_venv)
-				details = work_venv.parse_wheel_name(wheel.name)
-				pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
-				if (pypi_wheel not in source_wheels) and (pypi_wheel not in simple_wheels):
-					wheel = move(wheel, output_dir / wheel.name)
-					LOGGER.info('Finished placing wheel: %s', wheel)
-					work_venv.install(wheel)
-					source_wheels[pypi_wheel] = wheel
-				else:
-					LOGGER.warning('Duplicated source wheel for: %s', pypi_wheel)
-		
-		hidden_wheels = {}
-		LOGGER.info('Looking for hidden wheels in weird structures: %s', [structure.name for structure in weird_structures])
-		for structure in weird_structures:
-			for the_dir, child_dirs, child_files in walk(structure):
-				for child in child_files:
-					if child[-4:] == '.whl':
-						if not is_python_module(entry.name):
-							continue
-						wheel = Path(the_dir) / child
-						details = work_venv.parse_wheel_name(wheel.name)
-						pypi_wheel = '{}=={}'.format(details['distribution'], details['version'])
-						if (pypi_wheel in source_wheels) or (pypi_wheel in simple_wheels):
-							LOGGER.warning('Duplicated hidden wheel for: %s', pypi_wheel)
-							continue
-						if (pypi_wheel not in hidden_wheels):
-							hidden_wheels[pypi_wheel] = None
-						if work_venv.compatible_wheel(wheel.name):
-							wheel = move(wheel, output_dir / wheel.name)
-							LOGGER.info('Finished placing wheel: %s', wheel)
-							work_venv.install(wheel)
-							hidden_wheels[pypi_wheel] = wheel
-							
-		hidden_pypi_wheels = [pypi_wheel for pypi_wheel, wheel in hidden_wheels.items() if wheel is None]
-		if hidden_pypi_wheels:
-			work_venv.download(*hidden_pypi_wheels, dest=str(output_dir))
-			LOGGER.warning('Installing incompatible hidden wheels from pypi: %s', hidden_pypi_wheels)
-			work_venv.install(*hidden_pypi_wheels, no_index=False)
-		
-		if include_random_packages:
-			work_venv.download(*include_random_packages, dest=str(output_dir))
-			LOGGER.warning('Installing requested random wheels from pypi: %s', include_random_packages)
-			work_venv.install(*include_random_packages, no_index=False)
-		
-		LOGGER.info('Checking integrity of the env after all wheels got installed')
-		work_venv('check', program='pip')
-		
-		return set(simple_wheels.keys()) | set(source_wheels.keys()) | set(hidden_wheels.keys()) | set(include_random_packages)
-
-def is_python_module(package_name):
-	"""Is it a python module?
-	Checks if the provided package is not a python module based on the hardcoded NON_PYTHON_MODULES list.
-	"""
-
-	for ignoring_package in NON_PYTHON_MODULES:
-		if package_name[:len(ignoring_package)].lower() == ignoring_package.lower():
-			return False
-	return True
-
-def rpmvenv_json(pip_version, venv = './venv'):
-	pass
+		dist_volume = '/root/dist'
+		template_details = {
+			'version_tag': version_tag,
+			'release_tag': release_tag,
+			'target_install_path': target_install_path,
+			'dist_dir': str(dist_volume),
+		}
+		volumes = {str(host_dist_dir): {'bind': str(dist_volume), 'mode': 'rw'}}
+		return DockerfileTemplate(**template_details).run(volumes=volumes).decode('utf8')
