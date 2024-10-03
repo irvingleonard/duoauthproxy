@@ -38,8 +38,9 @@ class InstallerTarball:
 	
 	"""
 	
-	NON_PYTHON_MODULES = ('python-',)
 	BASIC_PYTHON_MODULES = ('pip', 'setuptools', 'setuptools_scm', 'wheel')
+	NON_PYTHON_MODULES = ('python-',)
+	SYSTEMD_UNIT_FILE_NAME = 'duoauthproxy.service'
 	
 	def __init__(self, file_path):
 		"""
@@ -61,6 +62,16 @@ class InstallerTarball:
 			value = {PurePath(member.name): member for member in self.members}
 		elif item == 'packages_dir':
 			value = self.root_dir / 'pkgs'
+		elif item == 'python_version':
+			value = None
+			LOOKING_FOR = 'python-'
+			for member in self.member_paths:
+				if member.parent == self.packages_dir:
+					if member.name[:len(LOOKING_FOR)].lower() == LOOKING_FOR.lower():
+						value = member.name[len(LOOKING_FOR):].split('.')
+						break
+			if value is None:
+				raise RuntimeError("Couldn't detect the version of the Python package")
 		elif item == 'root_dir':
 			value = PurePath(self.members[0].name).parts[0]
 			for member in self.member_paths:
@@ -103,7 +114,7 @@ class InstallerTarball:
 							result.append(wheels_dir / module_dist[0].name)
 		return result
 		
-	def extract_file(self, path, destination, *, parents=True, exist_ok=False, fail_silently=False):
+	def extract_file(self, path, destination=None, *, parents=True, exist_ok=False, fail_silently=False):
 		"""
 		
 		"""
@@ -115,6 +126,11 @@ class InstallerTarball:
 				return None
 			else:
 				raise ValueError('Path "{}" is not a file'.format(member.name))
+		
+		if destination is None:
+			with self.tarball_obj.extractfile(member) as source_f:
+				return source_f.read()
+		
 		destination = Path(destination)
 		if destination.is_dir():
 			destination = destination / Path(member.name).name
@@ -155,7 +171,6 @@ class InstallerTarball:
 		
 		return [member for member in self.member_paths if directory in member.parents]
 		
-	
 	def identify_modules(self):
 		"""Identify modules on the tarball
 		Given a tarball, detect all the packages present and sort wheels, source modules, and "special cases" (mostly "cryptography")
@@ -184,7 +199,7 @@ class InstallerTarball:
 				return False
 		return True
 	
-	def prepare_assets(self, output_dir=Path.cwd(), clean_output_first=False, wheels_dir_name='wheels'):
+	def prepare_assets(self, output_dir=Path.cwd(), service_uid='root', clean_output_first=False, wheels_dir_name='wheels'):
 		"""
 
 		"""
@@ -203,6 +218,31 @@ class InstallerTarball:
 			conf_dir.mkdir(exist_ok=True)
 			for file_path in conf_content:
 				result['conf'].append(self.extract_file(file_path, conf_dir, exist_ok=True))
+		
+		doc_content = self.get_dir_members('doc')
+		if doc_content:
+			result['licenses'] = []
+			licenses_dir = output_dir / 'licenses'
+			licenses_dir.mkdir(exist_ok=True)
+			for file_path in doc_content:
+				result['licenses'].append(self.extract_file(file_path, licenses_dir, exist_ok=True))
+		
+		selinux_content = self.get_dir_members('selinux_policy')
+		if selinux_content:
+			result['selinux_policy'] = []
+			selinux_dir = output_dir / 'selinux_policy'
+			selinux_dir.mkdir(exist_ok=True)
+			for file_path in selinux_content:
+				result['selinux_policy'].append(self.extract_file(file_path, selinux_dir, exist_ok=True))
+		
+		extra_py_content = [member for member in self.get_dir_members(self.root_dir) if member.parent == self.root_dir]
+		if extra_py_content:
+			result['extra_py'] = []
+			extra_py_dir = output_dir / 'extra_py'
+			extra_py_dir.mkdir(exist_ok=True)
+			for file_path in extra_py_content:
+				if file_path.suffix == '.py':
+					result['extra_py'].append(self.extract_file(file_path, extra_py_dir, exist_ok=True))
 		
 		wheels, source_modules, special = self.identify_modules()
 		
@@ -230,6 +270,12 @@ class InstallerTarball:
 		if source_modules:
 			result['wheels_dir'].mkdir(parents=True, exist_ok=True)
 			result['built_wheels'] = self.build_sources(*source_modules, wheels_dir=result['wheels_dir'], venv_wheels=venv_wheels)
+		
+		systemd_unit_template = Path(__file__).parent / 'data' / (self.SYSTEMD_UNIT_FILE_NAME + '.jinja')
+		jinja_env = Jinja2Environment()
+		systemd_unit = jinja_env.from_string(systemd_unit_template.read_text())
+		result['systemd_unit'] = output_dir / self.SYSTEMD_UNIT_FILE_NAME
+		result['systemd_unit'].write_text(systemd_unit.render({'output_dir': output_dir, 'service_uid': service_uid}))
 		
 		return result
 		
