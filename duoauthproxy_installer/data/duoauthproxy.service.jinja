@@ -1,0 +1,15 @@
+[Unit]
+Description=Duo Security Authentication Proxy
+After=network.target
+
+[Service]
+Type=forking
+ExecStart={{ output_dir }}/bin/python -s {{ output_dir }}/bin/twistd --pidfile={{ output_dir }}/run/duoauthproxy.pid --python={{ output_dir }}/bin/duoauthproxy.tap --uid={{ service_uid }} --gid={{ service_uid }}
+ExecStop={{ output_dir }}/bin/authproxyctl stop
+StandardOutput=journal
+LimitNOFILE=1048576
+Restart=on-failure
+RestartSec=1min
+
+[Install]
+WantedBy=multi-user.target
