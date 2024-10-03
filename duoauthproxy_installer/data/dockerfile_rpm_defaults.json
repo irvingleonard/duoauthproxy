@@ -5,7 +5,14 @@
       "dnf clean all",
       "dnf --assumeyes upgrade",
       "dnf --assumeyes install epel-release",
-      "dnf --assumeyes install rpmdevtools gcc python3-devel"
-    ]
+      "dnf --assumeyes install rpmdevtools gcc"
+    ],
+    "python": {
+      "command": "dnf --assumeyes install {}",
+      "3.9": "https://github.com/irvingleonard/python-altinstall/releases/download/pre-v3.9.20/python39-altinstall-3.9.20-1.el9.x86_64.rpm",
+      "3.10": "https://github.com/irvingleonard/python-altinstall/releases/download/v3.10.15-local/python310-altinstall-3.10.15-1.el9.x86_64.rpm",
+      "3.11": "https://github.com/irvingleonard/python-altinstall/releases/download/v3.11.10-local/python311-altinstall-3.11.10-1.el9.x86_64.rpm",
+      "3.12": "https://github.com/irvingleonard/python-altinstall/releases/download/v3.12.7-local/python312-altinstall-3.12.7-1.el9.x86_64.rpm"
+    }
   }
 }
