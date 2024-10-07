@@ -10,10 +10,10 @@ RUN {{ command_line }}
 {% endif -%}
 #Building the environment
 WORKDIR /root
-RUN python3 -m venv venv
+RUN {{ python }} -m venv venv
 RUN ./venv/bin/python -m pip install --upgrade pip
 COPY dist/duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl ./
-RUN ./venv/bin/pip install --upgrade --extra-index-url https://test.pypi.org/simple/ duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl "devautotools==0.1.2.dev3"
+RUN ./venv/bin/pip install --upgrade --extra-index-url https://test.pypi.org/simple/ duoauthproxy_installer-0.1.0.dev0-py3-none-any.whl "devautotools==0.1.2.dev4"
 RUN ./venv/bin/pip install --upgrade rpmvenv virtualenv
 ENV PATH=/root/venv/bin:$PATH
 

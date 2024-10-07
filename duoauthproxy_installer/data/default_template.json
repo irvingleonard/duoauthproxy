@@ -23,7 +23,6 @@
     "group": "root"
   },
   "python_venv": {
-    "cmd": "python3 -m venv",
     "flags": [],
     "pip_flags": "--no-index",
     "require_setup_py": false

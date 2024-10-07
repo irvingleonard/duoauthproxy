@@ -92,8 +92,8 @@ class InstallerTarball:
 		"""
 		
 		result = []
-		with VirtualEnvironmentManager(path=None, show_output=False) as venv:
-			venv('-m', 'pip', 'install', '--upgrade', *['=='.join(item) for item in venv_wheels.items()])
+		with VirtualEnvironmentManager(path=None) as venv:
+			venv('-m', 'pip', 'install', '--upgrade', *['=='.join(item) for item in venv_wheels.items()],)
 			with TemporaryDirectory() as temp_dir_name:
 				temp_dir = Path(temp_dir_name)
 				for module in source_modules:
@@ -247,7 +247,7 @@ class InstallerTarball:
 		wheels, source_modules, special = self.identify_modules()
 		
 		venv_wheels, local_wheels, result['missing_wheels'] ={}, {}, {}
-		with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+		with VirtualEnvironmentManager(path=None) as venv:
 			for wheel in wheels:
 				wheel_data = venv.parse_wheel_name(wheel)
 				if wheel_data['distribution'] in self.BASIC_PYTHON_MODULES:
@@ -376,14 +376,17 @@ class RPMVenvTemplate(dict):
 		if not self['core']:
 			del self['core']
 	
-	def add_data_file(self, name, source):
+	def add_data_file(self, src, dest):
 		"""
 
 		"""
 		
+		dest = PurePath(dest)
+		if dest.is_absolute():
+			dest = dest.relative_to('/')
 		self['file_extras']['files'].append({
-			'src': name,
-			'dest': source,
+			'src': str(src),
+			'dest': str(dest),
 		})
 	
 	def load_defaults(self):
@@ -396,6 +399,19 @@ class RPMVenvTemplate(dict):
 			raise FileNotFoundError(str(default_json))
 		
 		self.update(json_loads(default_json.read_text()))
+		
+	def update_venv(self, name, path, requirements, python):
+		"""
+		
+		"""
+		
+		self['python_venv']['name'] = name
+		path = Path(path)
+		if path.is_absolute():
+			path = path.relative_to('/')
+		self['python_venv']['path'] = path
+		self['python_venv']['requirements'] = requirements
+		self['python_venv']['cmd'] = str(python) + ' -m venv'
 
 
 class DockerfileTemplate(dict):
@@ -403,8 +419,9 @@ class DockerfileTemplate(dict):
 	
 	"""
 	
-	DEFAULTS_FILE = Path(__file__).parent / 'data' / 'dockerfile_rpm_defaults.json'
-	TAG_NAME = 'duoauthproxy_installer'
+	DEFAULTS_FILE = Path(__file__).parent / 'data' / 'dockerfile_defaults.json'
+	TAG_NAME = 'duoauthproxy_packager'
+	TEMPLATE_NAMES = 'dockerfile_{}_template.jinja'
 	
 	def __enter__(self):
 		"""
@@ -430,13 +447,27 @@ class DockerfileTemplate(dict):
 		
 		if item == 'client':
 			value = docker_from_env()
+		elif item == 'defaults':
+			value = json_loads(self.DEFAULTS_FILE.read_text())
+			if self.dist not in value:
+				raise ValueError('Missing "{}" distribution in dockerfile_defaults'.format(self.dist))
+			value = value[self.dist]
+		elif item == 'package_format':
+			self._load_values()
+			if 'package_format' not in self.defaults:
+				raise ValueError('Missing "package_format" section for "{}" distribution in dockerfile_defaults'.format(self.dist))
+			value = self.defaults['package_format']
+		elif item == 'template_file_path':
+			value = Path(__file__).parent / 'data' / self.TEMPLATE_NAMES.format(self.package_format)
+			if not value.is_file():
+				raise FileNotFoundError('Dockerfile template not found for "{}"'.format(self.package_format))
 		else:
 			raise AttributeError(item)
 		
 		self.__setattr__(item, value)
 		return value
 	
-	def __init__(self, root_dir=Path.cwd(), /, **details):
+	def __init__(self, dist, python_version, root_dir=Path.cwd(), /, **details):
 		"""
 		
 		"""
@@ -448,8 +479,10 @@ class DockerfileTemplate(dict):
 		
 		super().__init__(details)
 		self.root_dir = Path(root_dir)
-		self._template_file_name = 'dockerfile_rpm_template'
-		self.load_defaults('centos-stream9')
+		self.dist = dist
+		if not isinstance(python_version, str):
+			python_version = '.'.join(python_version)
+		self.python_version = python_version
 	
 	def __str__(self):
 		"""
@@ -457,7 +490,7 @@ class DockerfileTemplate(dict):
 		"""
 		
 		jinja_env = Jinja2Environment()
-		result = jinja_env.from_string((Path(__file__).parent / 'data' / self._template_file_name).with_suffix('.jinja').read_text())
+		result = jinja_env.from_string(self.template_file_path.read_text())
 		return result.render(self)
 	
 	def build(self, name_tag):
@@ -469,13 +502,29 @@ class DockerfileTemplate(dict):
 			result = self.client.images.build(path=str(dockerfile.parent), tag=name_tag, rm=True, forcerm=True)
 		return result
 	
-	def load_defaults(self, defaults_name):
+	def _load_values(self):
 		"""
 		
 		"""
 		
-		values = json_loads(self.DEFAULTS_FILE.read_text())
-		self.update(values[defaults_name])
+		if 'dockerfile' not in self.defaults:
+			raise ValueError('Missing "dockerfile" section for "{}" distribution in dockerfile_defaults'.format(self.dist))
+		self.update(self.defaults['dockerfile'])
+		
+		if 'python' not in self.defaults:
+			raise ValueError('Missing "python" section for "{}" distribution in dockerfile_defaults'.format(self.dist))
+		
+		if 'install' not in self.defaults['python']:
+			raise ValueError('Missing "python.install" section for "{}" distribution in dockerfile_defaults'.format(self.dist))
+		if 'packages' not in self.defaults['python']:
+			raise ValueError('Missing "python.packages" section for "{}" distribution in dockerfile_defaults'.format(self.dist))
+		if self.python_version not in self.defaults['python']['packages']:
+			raise ValueError('Missing "python.packages.{}" entry for "{}" distribution in dockerfile_defaults'.format(self.python_version, self.dist))
+		self['image_preparation'].append(self.defaults['python']['install'].format(self.defaults['python']['packages'][self.python_version]))
+		
+		if 'path' not in self.defaults['python']:
+			raise ValueError('Missing "python.path" section for "{}" distribution in dockerfile_defaults'.format(self.dist))
+		self['python'] = self.defaults['python']['path'].format(self.python_version)
 		
 	def run(self, fresh_build=True, /, **run_arguments):
 		"""
@@ -493,14 +542,16 @@ class DockerfileTemplate(dict):
 		}
 		run_arguments_.update(run_arguments)
 		return self.client.containers.run(self.TAG_NAME, **run_arguments_)
-	
-		
+
+
 class DuoAuthProxyInstaller:
 	"""
 	
 	"""
 	
+	DEFAULTS_FILE = Path(__file__).parent / 'data' / 'target_defaults.json'
 	DOWNLOAD_PATH_TEMPLATE = r'https://dl.duosecurity.com/duoauthproxy-{version_tag}-src.tgz'
+	SYSTEMD_UNIT_PATH = PurePath('/') / 'etc' / 'systemd' / 'system'
 	
 	def __call__(self, release_tag, *, target_install_path=DEFAULT_TARGET_INSTALL_PATH, dist_dir='dist'):
 		"""
@@ -534,9 +585,9 @@ class DuoAuthProxyInstaller:
 			value = self._installer_root if self._installer_root.is_absolute() else Path.cwd() / self._installer_root
 			value.mkdir(parents=True, exist_ok=True)
 		elif item == 'requirements':
-			with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+			with VirtualEnvironmentManager(path=None) as venv:
 				venv.install(*[str(wheel) for wheel in self.wheels_dir.iterdir() if wheel.suffix == '.whl'], no_index=True)
-				value = venv('freeze', program='pip').stdout
+				value = venv.freeze()
 		elif item == 'tarball':
 			value = InstallerTarball(self.download_tarball())
 		elif item == 'tarball_assets':
@@ -545,7 +596,7 @@ class DuoAuthProxyInstaller:
 			value = self.root_path / self._wheels_dir_name
 			copytree(self.tarball_assets['wheels_dir'], value, dirs_exist_ok=True)
 			if self.tarball_assets['missing_wheels']:
-				with VirtualEnvironmentManager(path=None, show_output=False) as venv:
+				with VirtualEnvironmentManager(path=None) as venv:
 					venv.download(*['=='.join(item) for item in self.tarball_assets['missing_wheels'].items()], dest=str(value))
 		else:
 			raise AttributeError(item)
@@ -575,34 +626,47 @@ class DuoAuthProxyInstaller:
 			for file_path in self.tarball_assets['conf']:
 				final_file = Path(move(file_path, conf_dir)).absolute()
 				relative_name = final_file.relative_to(staging_dir)
-				rpmvenv_data.add_data_file(relative_name, (target_install_path / relative_name).relative_to('/'))
+				rpmvenv_data.add_data_file(relative_name, target_install_path / relative_name)
+				
+		if self.tarball_assets['licenses']:
+			licenses_dir = staging_dir / 'licenses'
+			licenses_dir.mkdir(exist_ok=True)
+			for file_path in self.tarball_assets['licenses']:
+				final_file = Path(move(file_path, licenses_dir)).absolute()
+				relative_name = final_file.relative_to(staging_dir)
+				rpmvenv_data.add_data_file(relative_name, target_install_path / relative_name)
 		
 		log_dir = staging_dir / 'log'
 		log_dir.mkdir(exist_ok=True)
 		log_file = log_dir / 'authproxy.log'
 		log_file.touch()
 		relative_log_name = log_file.relative_to(staging_dir)
-		rpmvenv_data.add_data_file(relative_log_name, (target_install_path / relative_log_name).relative_to('/'))
+		rpmvenv_data.add_data_file(relative_log_name, target_install_path / relative_log_name)
 		
 		run_dir = staging_dir / 'run'
 		run_dir.mkdir(exist_ok=True)
 		run_empty_file = run_dir / '.empty_file'
 		run_empty_file.touch()
 		relative_run_name = run_empty_file.relative_to(staging_dir)
-		rpmvenv_data.add_data_file(relative_run_name, (target_install_path / relative_run_name).relative_to('/'))
+		rpmvenv_data.add_data_file(relative_run_name, target_install_path / relative_run_name)
+		
+		if 'systemd_unit' in self.tarball_assets:
+			systemd_unit_dest = self.SYSTEMD_UNIT_PATH / self.tarball_assets['systemd_unit'].name
+			move(self.tarball_assets['systemd_unit'], staging_dir)
+			rpmvenv_data.add_data_file(self.tarball_assets['systemd_unit'].name, systemd_unit_dest)
 		
 		requirements_file = staging_dir / 'requirements.txt'
 		requirements_file.write_text(self.requirements)
 		
-		rpmvenv_data['python_venv']['name'] = target_install_path.name
-		rpmvenv_data['python_venv']['path'] = target_install_path.parent.relative_to('/')
-		rpmvenv_data['python_venv']['requirements'] = [requirements_file.relative_to(staging_dir)]
+		rpmvenv_data.update_venv(name=target_install_path.name, path=target_install_path.parent, requirements=[requirements_file.relative_to(staging_dir)], python='python3')
 		
 		rpmvenv_json_file = staging_dir / '{}.{}.json'.format(rpmvenv_data.name, rpmvenv_data.version)
 		rpmvenv_json_file.write_text(str(rpmvenv_data))
 		
 		rpms_dir = (Path.cwd() if rpms_dir is None else Path(rpms_dir)).absolute()
 		rpms_dir.mkdir(exist_ok=True)
+		
+		# return (run(('ls', '-l', '/root/rpm_data')), run(('cat', '/root/rpm_data/duoauthproxy.6.4.1.json')))
 		
 		return run(('rpmvenv', '--destination', str(rpms_dir), str(rpmvenv_json_file)), stderr=STDOUT, stdout=PIPE, text=True, check=True, cwd=staging_dir).stdout
 	
